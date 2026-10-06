@@ -1,0 +1,18 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "school-mcp"
+version = "0.1.0"
+description = "Local MCP adapters for personal school services"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = ["mcp>=1.26,<2", "httpx>=0.28,<1", "beautifulsoup4>=4.13,<5", "playwright>=1.55,<2"]
+
+[project.scripts]
+school-mcp = "school_mcp.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/school_mcp"]

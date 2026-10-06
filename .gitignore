@@ -1,0 +1,46 @@
+# Private environment configuration
+.env
+.env.*
+!.env.example
+
+# Local credentials, sessions, personal data, and logs
+.local/
+*.log
+*.dpapi
+*.dpapi.tmp
+*.dpapi.*
+mail.json
+mail.json.tmp
+mail.credentials.tmp
+*.session.tmp
+*-session.tmp
+mail-setup-*/
+*.pid
+*.har
+attachments/
+downloads/
+diagnostics/
+traces/
+*.login-status.json
+*.login-status.tmp
+*-login-status.json
+*-login-status.tmp
+playwright/.auth/
+storage-state*.json
+storage_state*.json
+trace.zip
+
+# Common generated files
+node_modules/
+dist/
+build/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# OS metadata
+.DS_Store
+Thumbs.db

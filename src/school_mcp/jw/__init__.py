@@ -1,0 +1,1 @@
+"""USTC academic affairs adapter."""
