@@ -51,19 +51,19 @@ def school_bb_list_courses(keyword: str = "", term: str = "") -> dict[str, Any]:
 
 
 @mcp.tool(annotations=READ_ONLY)
-def school_bb_read_course(course_id: str, max_chars: int = 30000) -> dict[str, Any]:
+def school_bb_read_course(course_id: str, max_chars: int = 6000) -> dict[str, Any]:
     """读取指定课程入口及课程菜单链接。course_id 来自课程列表，max_chars 范围 1–100000。"""
     return BBClient().course_page(course_id, max_chars=max_chars)
 
 
 @mcp.tool(annotations=READ_ONLY)
-def school_bb_read_page(path: str, max_chars: int = 30000) -> dict[str, Any]:
+def school_bb_read_page(path: str, max_chars: int = 6000) -> dict[str, Any]:
     """读取课程结果中的 BB 只读页面，返回文本和资源链接。支持门户、课程入口、内容列表、公告、模块页和空白内容页。只允许平台的 HTTPS 页面。"""
     return BBClient().read_page(path=path, max_chars=max_chars)
 
 
 @mcp.tool(annotations=READ_ONLY)
-def school_bb_course_announcements(course_id: str, max_chars: int = 30000) -> dict[str, Any]:
+def school_bb_course_announcements(course_id: str, max_chars: int = 6000) -> dict[str, Any]:
     """读取指定课程的公告页面，包括正文和附件链接。course_id 来自课程列表，max_chars 范围 1–100000。"""
     return BBClient().announcements(course_id=course_id, max_chars=max_chars)
 

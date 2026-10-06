@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from network_test_support import isolate_pacing as setUpModule
+
 import os
 import tempfile
 import unittest

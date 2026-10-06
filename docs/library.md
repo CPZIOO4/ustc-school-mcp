@@ -1,5 +1,7 @@
 # 中科大图书馆接入
 
+个人图书馆访问方式保持不变。返回借阅记录默认省略图书条码，核对册次时可传 `include_identifiers=true`；统计默认省略证件日期，确有需要时可传 `include_card_dates=true`。限速与失败冷却见 [请求与数据策略](request-policy.md)。
+
 当前浏览器策略：Playwright + Chrome 默认无头后台运行；人工验证时停止，只有显式 `--headed` 才显示窗口。完整约定见 [项目说明](../README.md#浏览器运行约定)。
 
 [图书馆主页](https://lib.ustc.edu.cn/) 的“我的图书馆”指向 OPAC 个人服务。该适配器通过 OPAC 实际提供的学校统一身份认证入口登录，与 BB、教务系统共用本人授权保存的身份凭据及设备状态。
@@ -28,7 +30,7 @@
 | `school_library_status` | 查看保存状态、共享设备状态、传输协议及登录进度 |
 | `school_library_reconnect` | 启动本地图书馆统一身份登录并加密保存新会话 |
 | `school_library_check_connection` | 验证已登录个人门户，返回实际传输协议 |
-| `school_library_summary` | 查询超期图书、预约到书、委托到书等统计及证件有效日期 |
+| `school_library_summary` | 查询超期图书、预约到书、委托到书等统计；`include_card_dates=true` 才返回证件有效日期 |
 | `school_library_list_loans` | 查询当前借阅、应还日期和馆藏地等信息 |
 | `school_library_loan_history` | 查询借阅历史当前显示页的书名、借还日期和馆藏地 |
 | `school_library_list_services` | 读取公共主页的服务、数据库及公告链接目录，无需登录 |

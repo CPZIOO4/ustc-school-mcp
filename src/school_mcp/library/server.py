@@ -32,21 +32,21 @@ def school_library_check_connection() -> dict[str, Any]:
 
 
 @mcp.tool(annotations=READ_ONLY)
-def school_library_summary() -> dict[str, Any]:
-    """查询个人图书馆的超期、预约到书、委托到书等首页统计及证件有效日期。空白计数返回 null，不推断为零。"""
-    return LibraryClient().summary()
+def school_library_summary(include_card_dates: bool = False) -> dict[str, Any]:
+    """查询个人图书馆的超期、预约到书、委托到书等首页统计；仅 include_card_dates=true 返回证件有效日期。空白计数返回 null，不推断为零。"""
+    return LibraryClient().summary(include_card_dates)
 
 
 @mcp.tool(annotations=READ_ONLY)
-def school_library_list_loans() -> dict[str, Any]:
-    """查询当前借阅的书名、借阅及应还日期、馆藏地等；只读取，不续借。"""
-    return LibraryClient().loans()
+def school_library_list_loans(include_identifiers: bool = False) -> dict[str, Any]:
+    """查询当前借阅的书名、借阅及应还日期、馆藏地等；默认不返回图书条码，核对具体册次时可设置 include_identifiers=true；只读取，不续借。"""
+    return LibraryClient().loans(include_identifiers)
 
 
 @mcp.tool(annotations=READ_ONLY)
-def school_library_loan_history() -> dict[str, Any]:
-    """读取借阅历史当前显示页的书名、借阅和归还日期、馆藏地；不提交筛选表单、不自动翻页。"""
-    return LibraryClient().history()
+def school_library_loan_history(include_identifiers: bool = False) -> dict[str, Any]:
+    """读取借阅历史当前显示页的书名、借阅和归还日期、馆藏地；默认省略图书条码，确有需要时设置 include_identifiers=true；不提交筛选表单、不自动翻页。"""
+    return LibraryClient().history(include_identifiers)
 
 
 @mcp.tool(annotations=READ_ONLY)

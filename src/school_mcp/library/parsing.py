@@ -8,7 +8,7 @@ from bs4 import BeautifulSoup
 from .session import LibraryError, PUBLIC_URL
 
 
-def summary(html: str) -> dict:
+def summary(html: str, include_card_dates: bool = False) -> dict:
     soup = BeautifulSoup(html, "html.parser")
     boxes = soup.select(".infobox")
     if not boxes:
@@ -26,13 +26,13 @@ def summary(html: str) -> dict:
         key = allowed.get(label.get_text(strip=True).rstrip("：:")) if label else None
         if key and value:
             dates[key] = value.get_text(strip=True)
-    return {"statistics": statistics, **dates, "content_is_untrusted": True}
+    return {"statistics": statistics, **(dates if include_card_dates else {}), "content_is_untrusted": True}
 
 
 FIELDS = {"条码号": "barcode", "题名": "title", "题名/责任者": "title_author", "责任者": "author", "借阅日期": "borrowed_date", "应还日期": "due_date", "归还日期": "returned_date", "馆藏地": "location", "续借次数": "renewal_count", "状态": "status"}
 
 
-def book_records(html: str, kind: str) -> dict:
+def book_records(html: str, kind: str, include_identifiers: bool = False) -> dict:
     soup = BeautifulSoup(html, "html.parser")
     main = soup.select_one("#mylib_content")
     if main is None:
@@ -54,7 +54,7 @@ def book_records(html: str, kind: str) -> dict:
                 if re.search(r"记录为空|暂无.*记录|没有.*记录", row.get_text()):
                     continue
                 raise LibraryError("图书馆借阅表格列数已变化。")
-            record = {FIELDS[h]: c.get_text(" ", strip=True) for h, c in zip(headers, cells) if h in FIELDS}
+            record = {FIELDS[h]: c.get_text(" ", strip=True) for h, c in zip(headers, cells) if h in FIELDS and (include_identifiers or FIELDS[h] != "barcode")}
             if record.get("title") or record.get("title_author"):
                 records.append(record)
         if len(records) > 200:

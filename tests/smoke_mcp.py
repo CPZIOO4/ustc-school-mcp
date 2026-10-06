@@ -10,6 +10,22 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 
+def check_minimal_defaults(tools):
+    expected = {
+        "school_mail_search": {"limit": 10, "include_headers": False},
+        "school_mail_read": {"max_chars": 6000, "include_headers": False},
+        "school_jw_grades": {"summary_only": False},
+        "school_library_summary": {"include_card_dates": False},
+        "school_library_list_loans": {"include_identifiers": False},
+        "school_nan7_get_offer": {"include_seller": False},
+        "school_bb_read_course": {"max_chars": 6000},
+        "school_young_read_home": {"max_chars": 4000},
+    }
+    for tool in tools.tools:
+        for key, default in expected.get(tool.name, {}).items():
+            assert tool.inputSchema["properties"][key]["default"] == default, (tool.name, key)
+
+
 async def main() -> None:
     with tempfile.TemporaryDirectory() as directory:
         env = {**os.environ, "SCHOOL_MCP_LOCAL_DIR": directory, "SCHOOL_MAIL_PASSWORD": "", "PYTHONUTF8": "1"}
@@ -18,6 +34,7 @@ async def main() -> None:
             async with ClientSession(reader, writer) as session:
                 initialized = await session.initialize()
                 tools = await session.list_tools()
+                check_minimal_defaults(tools)
                 names = {tool.name for tool in tools.tools}
                 assert names == {"school_mail_status", "school_mail_setup_guide", "school_mail_check_connection", "school_mail_list_folders", "school_mail_search", "school_mail_read", "school_mail_download_attachment"}, names
                 status = await session.call_tool("school_mail_status", {})
@@ -36,6 +53,7 @@ async def main() -> None:
             async with ClientSession(reader, writer) as session:
                 initialized = await session.initialize()
                 tools = await session.list_tools()
+                check_minimal_defaults(tools)
                 names = {tool.name for tool in tools.tools}
                 assert names == {"school_bb_status", "school_bb_check_connection", "school_bb_list_courses", "school_bb_read_course", "school_bb_read_page", "school_bb_course_announcements", "school_bb_auth_status", "school_bb_reconnect"}, names
                 status = await session.call_tool("school_bb_status", {})
@@ -51,6 +69,7 @@ async def main() -> None:
             async with ClientSession(reader, writer) as session:
                 initialized = await session.initialize()
                 tools = await session.list_tools()
+                check_minimal_defaults(tools)
                 names = {tool.name for tool in tools.tools}
                 assert names == {"school_jw_status", "school_jw_reconnect", "school_jw_check_connection", "school_jw_read_home", "school_jw_list_modules", "school_jw_list_semesters", "school_jw_list_courses", "school_jw_timetable", "school_jw_grades"}, names
                 status = await session.call_tool("school_jw_status", {})
@@ -67,6 +86,7 @@ async def main() -> None:
             async with ClientSession(reader, writer) as session:
                 initialized = await session.initialize()
                 tools = await session.list_tools()
+                check_minimal_defaults(tools)
                 names = {tool.name for tool in tools.tools}
                 assert names == {"school_library_status", "school_library_reconnect", "school_library_check_connection", "school_library_summary", "school_library_list_loans", "school_library_loan_history", "school_library_list_services"}, names
                 status = await session.call_tool("school_library_status", {})
@@ -84,6 +104,7 @@ async def main() -> None:
                 async with ClientSession(reader, writer) as session:
                     initialized = await session.initialize()
                     tools = await session.list_tools()
+                    check_minimal_defaults(tools)
                     names = {tool.name for tool in tools.tools}
                     status_name = f"school_{adapter}_status"
                     assert status_name in names and len(names) >= 2, names

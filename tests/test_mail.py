@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from network_test_support import isolate_pacing as setUpModule
+
 import imaplib
 import os
 import tempfile
@@ -78,6 +80,27 @@ class MailBehaviorTests(unittest.TestCase):
         self.assertTrue(all(call[2] is True for call in self.fake.calls if call[0] == "SELECT"))
         self.assertTrue(all("BODY.PEEK" in call[-1] for call in self.fake.calls if call[0] == "FETCH" and "BODY" in call[-1]))
         self.assertFalse(any(call[0] in {"STORE", "EXPUNGE", "APPEND"} for call in self.fake.calls))
+
+    def test_recipient_and_thread_headers_require_explicit_detail(self):
+        result = self.client.search(limit=1)
+        self.assertNotIn("to", result["messages"][0])
+        self.assertNotIn("cc", result["messages"][0])
+        request = next(call for call in self.fake.calls if call[0] == "FETCH")
+        self.assertIn("HEADER.FIELDS (SUBJECT FROM DATE)", request[-1])
+        self.assertNotIn("to", self.client.read(42, 123))
+        self.assertEqual(self.client.read(42, 123, include_headers=True)["to"], self.config.address)
+        self.assertEqual(self.client.search(limit=1, include_headers=True)["messages"][0]["to"], self.config.address)
+
+    def test_default_body_budget_reports_truncation_without_changing_mail(self):
+        message = EmailMessage()
+        message.set_content("a" * 6500)
+        self.fake.raw = message.as_bytes()
+        self.fake.size = len(self.fake.raw)
+        result = self.client.read(42, 123)
+        self.assertEqual(len(result["body"]), 6000)
+        self.assertTrue(result["body_truncated"])
+        self.assertGreater(result["body_total_chars"], 6000)
+        self.assertFalse(self.client.read(42, 123, max_chars=7000)["body_truncated"])
 
     def test_changed_uid_validity_prevents_reading_wrong_mail(self):
         with self.assertRaisesRegex(MailError, "编号已改变"):

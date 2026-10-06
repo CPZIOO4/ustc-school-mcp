@@ -131,7 +131,7 @@ def status() -> dict:
     try:
         credentials = load_credentials()
         account = credentials["username"]
-        result.update(credentials_saved=True, username=account)
+        result.update(credentials_saved=True)
         result["email_verification_enabled"] = credentials.get("email_verification_enabled") is True
     except BBError:
         pass

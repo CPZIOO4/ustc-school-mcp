@@ -38,15 +38,15 @@ def school_nan7_list_categories() -> dict[str, Any]:
 
 
 @mcp.tool(annotations=READ_ONLY)
-def school_nan7_search_offers(query: str = "", offer_type: str = "sell", category: int | None = None, page: str | None = None) -> dict[str, Any]:
-    """读取一页出售(sell)或求购(buy)商品。query为空即列表；出售可按分类0–6筛选；page原样传入上次返回的next_page/previous_page。"""
-    return Nan7Client().search(query, offer_type, category, page)
+def school_nan7_search_offers(query: str = "", offer_type: str = "sell", category: int | None = None, page: str | None = None, include_seller: bool = False) -> dict[str, Any]:
+    """读取一页出售(sell)或求购(buy)商品。query为空即列表；出售可按分类0–6筛选；默认省略卖家信息；需要核对卖家时 include_seller=true。page原样传入上次返回的next_page/previous_page。"""
+    return Nan7Client().search(query, offer_type, category, page, include_seller)
 
 
 @mcp.tool(annotations=READ_ONLY)
-def school_nan7_get_offer(offer_id: str) -> dict[str, Any]:
-    """根据列表中的商品ID读取标题、价格、详情、公开卖家名称与图片链接，不联系卖家。"""
-    return Nan7Client().detail(offer_id)
+def school_nan7_get_offer(offer_id: str, include_seller: bool = False) -> dict[str, Any]:
+    """根据列表中的商品ID读取标题、价格、详情与图片链接；仅 include_seller=true 返回公开卖家信息，不联系卖家。"""
+    return Nan7Client().detail(offer_id, include_seller)
 
 
 def run():

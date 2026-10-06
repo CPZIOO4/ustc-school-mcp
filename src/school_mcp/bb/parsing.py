@@ -71,7 +71,7 @@ def course_links(html: str) -> list[dict]:
     return list(courses.values())
 
 
-def page_data(html: str, url: str, max_chars: int = 30000) -> dict:
+def page_data(html: str, url: str, max_chars: int = 6000) -> dict:
     soup = soup_of(html)
     title = soup.title.get_text(" ", strip=True) if soup.title else ""
     content = soup.select_one("#contentPanel, #content, #containerdiv, main") or soup.body or soup

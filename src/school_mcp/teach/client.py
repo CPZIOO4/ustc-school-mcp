@@ -5,6 +5,8 @@ from typing import Any
 from urllib.parse import quote, urljoin, urlsplit
 
 import httpx
+
+from ..network import http_client
 from bs4 import BeautifulSoup
 
 BASE_URL = "https://www.teach.ustc.edu.cn"
@@ -130,7 +132,7 @@ class TeachClient:
     def _get(self, url: str) -> tuple[str, str]:
         # URLs are constructed by the narrow public methods. No personal cookies or SSO state.
         try:
-            with httpx.Client(timeout=25, transport=self.transport, follow_redirects=False, headers={"User-Agent": "SchoolMCP/0.1"}) as client:
+            with http_client("teach", TeachError, timeout=25, transport=self.transport, follow_redirects=False, headers={"User-Agent": "SchoolMCP/0.1"}) as client:
                 with client.stream("GET", url) as response:
                     if response.is_redirect:
                         raise TeachError("教务站返回跳转；匿名读取未跟随，可能需要统一认证或链接已变更。")

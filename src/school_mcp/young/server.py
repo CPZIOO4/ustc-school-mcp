@@ -31,7 +31,7 @@ async def school_young_check_connection() -> dict[str, Any]:
 
 
 @mcp.tool(annotations=READ)
-async def school_young_read_home(max_chars: int = 12000) -> dict[str, Any]:
+async def school_young_read_home(max_chars: int = 4000) -> dict[str, Any]:
     """读取已登录的数据大屏及可见菜单。统计为全校汇总，不代表个人记录。"""
     return await asyncio.to_thread(YoungClient().home, max_chars)
 

@@ -1,5 +1,7 @@
 # 南七集市只读 MCP
 
+商品列表和详情默认省略卖家名称与 ID；核对卖家时可设置 `include_seller=true`，仍不返回联系方式、不联系卖家。请求间隔和失败冷却见 [请求与数据策略](request-policy.md)。
+
 当前浏览器策略：Playwright + Chrome 默认无头后台运行；人工验证时停止，只有显式 `--headed` 才显示窗口。完整约定见 [项目说明](../README.md#浏览器运行约定)。
 
 服务名 `school-mcp-nan7market`，启动命令 `python -m school_mcp nan7-serve`。服务启动不要求账号，本地状态和分类目录可离线读取；商品查询需要有效的南七集市会话。

@@ -4,6 +4,8 @@ import re
 from urllib.parse import parse_qsl, urljoin, urlsplit
 
 import httpx
+
+from ..network import http_client
 from bs4 import BeautifulSoup
 
 from .session import BASE_URL, HOST, JWError, load_session
@@ -41,7 +43,7 @@ class JWClient:
         for cookie in self.cookies:
             cookies.set(cookie["name"], cookie["value"], domain=cookie["domain"], path=cookie.get("path", "/"))
         try:
-            with httpx.Client(cookies=cookies, timeout=20, follow_redirects=False, transport=self.transport, headers={"User-Agent": self.user_agent or "SchoolMCP/0.1"}) as client:
+            with http_client("jw", JWError, cookies=cookies, timeout=20, follow_redirects=False, transport=self.transport, headers={"User-Agent": self.user_agent or "SchoolMCP/0.1"}) as client:
                 url = BASE_URL + path
                 for _ in range(5):
                     response = client.get(url, params=params)
@@ -76,7 +78,7 @@ class JWClient:
         except (httpx.HTTPError, ValueError):
             raise JWError("无法读取教务系统，请检查网络与登录状态。") from None
 
-    def home(self, max_chars=30000) -> dict:
+    def home(self, max_chars=6000) -> dict:
         if not 1 <= max_chars <= 100000:
             raise JWError("max_chars 范围为 1–100000。")
         response = self.get("/home")
@@ -170,7 +172,7 @@ class JWClient:
         rows = [activity_row(a, dates) for a in vm["activities"] if (not week or week in a.get("weeksArray", [])) and (not weekday or weekday == a.get("weekday"))]
         return {"semester": context["semester"], "week": week, "weekday": weekday, "current_week": data.get("currentWeek"), "activities": rows, "count": len(rows), "week_dates": dates, "content_is_untrusted": True, "note": "按教务平台的周次和星期编号返回安排；可能包含不同教学分组。"}
 
-    def grades(self, semester_id: int = 0, train_type_id: int = 1, keyword: str = "") -> dict:
+    def grades(self, semester_id: int = 0, train_type_id: int = 1, keyword: str = "", summary_only: bool = False) -> dict:
         validate_id(semester_id, "semester_id")
         validate_id(train_type_id, "train_type_id")
         if len(keyword) > 200:
@@ -191,4 +193,4 @@ class JWClient:
             raise JWError("成绩接口结构已变化。")
         rows = grade_rows(data, keyword)
         overview = {key: data.get("overview", {}).get(key) for key in ("passedCredits", "gpa", "weightedScore", "notPassedCredits", "arithmeticScore")}
-        return {"train_type_id": train_type_id, "semesters": [{"id": s["id"], "name": s.get("nameZh")} for s in semesters if s["id"] in identifiers], "grades": rows, "count": len(rows), "overview": overview, "overview_scope": "所请求学期的完整成绩，关键词仅筛选课程行。", "content_is_untrusted": True}
+        return {"train_type_id": train_type_id, "semesters": [{"id": s["id"], "name": s.get("nameZh")} for s in semesters if s["id"] in identifiers], "grades": [] if summary_only else rows, "details_omitted": summary_only, "count": len(rows), "overview": overview, "overview_scope": "所请求学期的完整成绩，关键词仅筛选课程行。", "content_is_untrusted": True}

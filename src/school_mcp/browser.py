@@ -24,6 +24,17 @@ def chrome_browser(playwright, *, headless: bool | None = None):
 
 
 def background_progress(stage: str, detail: str) -> tuple[str, dict]:
+    from . import network
+    if stage in {"error", "cancelled", "waiting_for_verification"}:
+        try:
+            network.limiter.failure("identity", authentication=True)
+        except network.PolicyError:
+            pass  # Preserve the original terminal login status; future starts fail closed.
+    elif stage == "connected":
+        try:
+            network.limiter.success("identity")
+        except network.PolicyError:
+            pass
     metadata = {"browser_channel": "chrome", "headless": is_headless()}
     if stage == "waiting_for_verification" and is_headless():
         detail = "需要人工身份验证，后台登录已停止，未打开窗口。请明确选择人工登录后使用 --headed 模式。"

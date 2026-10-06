@@ -44,7 +44,7 @@ Blackboard、教务系统和个人图书馆共用经本人授权保存的统一�
 | `school_mail_read` | 读取正文、邮件头和附件清单 |
 | `school_mail_download_attachment` | 保存指定附件到本地私人目录 |
 
-第一版通过 IMAP TLS 连接 `mail.ustc.edu.cn:993`，使用完整邮箱地址和客户端专用密码。打开文件夹时使用只读模式，读取使用 `BODY.PEEK`，保留未读状态。单封邮件上限为 20 MiB，正文默认返回 20000 字符，可调整到 100000 字符。
+第一版通过 IMAP TLS 连接 `mail.ustc.edu.cn:993`，使用完整邮箱地址和客户端专用密码。打开文件夹时使用只读模式，读取使用 `BODY.PEEK`，保留未读状态。单封邮件上限为 20 MiB，正文默认返回 6000 字符，可调整到 100000 字符。邮件搜索默认 10 封；收件人、抄送和线程头仅在 `include_headers=true` 时返回。
 
 搜索结果按 UID 从大到小排列。读取和下载必须提供搜索结果中的 `mailbox`、`uid` 和 `uid_validity`，避免文件夹重新编号后读取到另一封邮件。中文搜索使用 UTF-8；服务器不支持该搜索条件时会返回提示。
 
@@ -106,6 +106,8 @@ codex mcp get ustc-mail
 如果当前对话没有加载新增工具，在客户端重新加载 MCP 连接；是否已经就绪以实际工具列表和 `school_mail_check_connection` 调用结果为准。客户端配置方式见 [OpenAI 官方 MCP 说明](https://developers.openai.com/codex/mcp/)。
 
 ## 开发与验证
+
+业务请求现已按服务限速，失败时进入跨进程共享冷却，遵守服务器更长的 `Retry-After`，不自动重放请求。默认返回值省略非必要身份字段，并提供详细查询参数；范围、参数和已知边界见 [请求与数据策略](docs/request-policy.md)。已运行的 MCP 进程需重新加载才会使用新逻辑。
 
 需要一次检查全部连接时，在项目根目录运行：
 

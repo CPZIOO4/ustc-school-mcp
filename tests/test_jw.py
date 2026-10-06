@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from network_test_support import isolate_pacing as setUpModule
+
 import json
 import os
 import tempfile
@@ -68,6 +70,15 @@ class Fixture:
 
 
 class JWRequestTests(unittest.TestCase):
+    def test_summary_only_grades_preserve_scope_and_never_return_course_details(self):
+        result = Fixture().client.grades(summary_only=True)
+        self.assertEqual(result["overview"]["gpa"], 3.5)
+        self.assertEqual(result["grades"], [])
+        self.assertTrue(result["details_omitted"])
+        self.assertGreater(result["count"], 0)
+        self.assertIn("所请求学期", result["overview_scope"])
+        self.assertNotIn("量子物理", json.dumps(result, ensure_ascii=False))
+
     def test_home_omits_private_scripts_forms_and_token_links(self):
         html = HOME + '<script>synthetic-report-secret</script><input value="synthetic-input-secret"><textarea>synthetic-draft-secret</textarea><a href="/home?ticket=synthetic-ticket">隐藏链接</a><a href="/home">首页</a>'
         client = JWClient(COOKIES, "SyntheticBrowser/1", httpx.MockTransport(lambda _: httpx.Response(200, headers={"Content-Type": "text/html"}, text=html)))

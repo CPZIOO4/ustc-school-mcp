@@ -80,7 +80,7 @@ class MailCodeRequest:
             self.examined.add(uid)
             if not eligible_header(message, self.client.config.address):
                 continue
-            full = self.client.read(uid, self.validity, max_chars=10000)
+            full = self.client.read(uid, self.validity, max_chars=10000, include_headers=True)
             code = extract_code(full, self.client.config.address)
             if not code:
                 raise MailError("新的认证邮件无法唯一确定本次验证码，请人工完成验证。")

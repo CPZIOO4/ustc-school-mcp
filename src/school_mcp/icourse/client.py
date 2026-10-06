@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
+
+from ..network import http_client
 from bs4 import BeautifulSoup
 
 BASE = "https://icourse.club"
@@ -119,7 +121,7 @@ class ICourseClient:
             raise ICourseError("不支持的公共读取路径。")
         try:
             # No shared identity state, password or user cookies enter this client.
-            with httpx.Client(transport=self.transport, timeout=30, follow_redirects=False,
+            with http_client("icourse", ICourseError, transport=self.transport, timeout=30, follow_redirects=False,
                               headers={"User-Agent": "SchoolMCP/0.1 (public read-only)", "Accept-Language": "zh-CN"}) as client:
                 with client.stream("GET", BASE + path, params=params) as response:
                     if response.is_redirect:

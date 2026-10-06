@@ -4,6 +4,8 @@ from http.cookiejar import Cookie
 from urllib.parse import urljoin, urlsplit
 
 import httpx
+
+from ..network import http_client
 from bs4 import BeautifulSoup
 
 from .parsing import book_records, services, summary
@@ -30,7 +32,7 @@ class LibraryClient:
             # Preserve Secure so a TLS-only Cookie is never sent to the legacy HTTP OPAC.
             cookies.jar.set_cookie(Cookie(0, cookie["name"], cookie["value"], None, False, cookie["domain"], True, cookie["domain"].startswith("."), cookie.get("path", "/"), True, bool(cookie.get("secure")), None, True, None, None, {}))
         try:
-            with httpx.Client(cookies=cookies, transport=self.transport, follow_redirects=False, timeout=20, headers={"User-Agent": self.user_agent or "SchoolMCP/0.1"}) as client:
+            with http_client("library", LibraryError, cookies=cookies, transport=self.transport, follow_redirects=False, timeout=20, headers={"User-Agent": self.user_agent or "SchoolMCP/0.1"}) as client:
                 url = self.base_url + path
                 for _ in range(4):
                     response = client.get(url)
@@ -60,20 +62,20 @@ class LibraryClient:
         response = self.get("/reader/redr_info.php")
         return {"connected": True, "read_only": True, "transport": urlsplit(str(response.url)).scheme, "service": "中国科学技术大学个人图书馆"}
 
-    def summary(self) -> dict:
-        return summary(self.get("/reader/redr_info.php").text)
+    def summary(self, include_card_dates: bool = False) -> dict:
+        return summary(self.get("/reader/redr_info.php").text, include_card_dates)
 
-    def loans(self) -> dict:
-        return book_records(self.get("/reader/book_lst.php").text, "current_loans")
+    def loans(self, include_identifiers: bool = False) -> dict:
+        return book_records(self.get("/reader/book_lst.php").text, "current_loans", include_identifiers)
 
-    def history(self) -> dict:
-        return book_records(self.get("/reader/book_hist.php").text, "loan_history")
+    def history(self, include_identifiers: bool = False) -> dict:
+        return book_records(self.get("/reader/book_hist.php").text, "loan_history", include_identifiers)
 
 
 def list_services(transport=None) -> dict:
     # Public directory requests never use personal OPAC or identity-provider Cookies.
     try:
-        with httpx.Client(timeout=20, follow_redirects=False, transport=transport) as client:
+        with http_client("library-public", LibraryError, timeout=20, follow_redirects=False, transport=transport) as client:
             response = client.get(PUBLIC_URL + "/")
         response.raise_for_status()
         if response.is_redirect or len(response.content) > 5 * 1024 * 1024 or "text/html" not in response.headers.get("content-type", "").lower():

@@ -6,6 +6,8 @@ from typing import Any
 
 import httpx
 
+from ..network import http_client
+
 from .session import API_URL, SITE_URL, Nan7Error, load_session, valid_token
 
 CATEGORIES = ["其他", "教材·图书·音像制品", "手机·电脑·数码产品", "家具·床帘·宿舍用品", "衣服·鞋子·箱包", "彩妆·清洁·个人护理", "演出·展览·门票"]
@@ -17,13 +19,13 @@ def valid_offer_id(value: Any) -> bool:
     return isinstance(value, (str, int)) and not isinstance(value, bool) and re.fullmatch(r"[A-Za-z0-9_-]{1,64}", str(value)) is not None
 
 
-def _offer(value: Any, detail: bool = False) -> dict[str, Any]:
+def _offer(value: Any, detail: bool = False, include_seller: bool = False) -> dict[str, Any]:
     if not isinstance(value, dict) or not valid_offer_id(value.get("id")):
         raise Nan7Error("南七集市返回了无法识别的商品信息。")
     result = {key: value[key] for key in ("id", "type", "title", "category", "price", "modifyTime", "valid") if key in value}
     result["url"] = f"{SITE_URL}/offer/{value['id']}"
     owner = value.get("owner")
-    if isinstance(owner, dict):
+    if include_seller and isinstance(owner, dict):
         result["owner"] = {key: owner[key] for key in ("id", "name") if key in owner}
     images = value.get("images")
     if isinstance(images, list):
@@ -44,7 +46,7 @@ class Nan7Client:
         if path not in READ_PATHS:
             raise Nan7Error("仅允许读取南七集市的商品列表与详情。")
         try:
-            with httpx.Client(timeout=30, follow_redirects=False, transport=self._transport) as client:
+            with http_client("nan7", Nan7Error, timeout=30, follow_redirects=False, transport=self._transport) as client:
                 with client.stream("POST", API_URL + path, json=payload, headers={"Authorization": "Bearer " + self._token, "Origin": SITE_URL, "Referer": SITE_URL + "/"}) as response:
                     if response.status_code in (401, 403):
                         raise Nan7Error("南七集市会话失效或无访问权限，请调用 school_nan7_reconnect。")
@@ -68,7 +70,7 @@ class Nan7Client:
         except (ValueError, TypeError):
             raise Nan7Error("南七集市接口返回格式异常，无法可靠读取。") from None
 
-    def search(self, query: str = "", offer_type: str = "sell", category: int | None = None, page: str | None = None) -> dict[str, Any]:
+    def search(self, query: str = "", offer_type: str = "sell", category: int | None = None, page: str | None = None, include_seller: bool = False) -> dict[str, Any]:
         if offer_type not in {"sell", "buy"}:
             raise Nan7Error("offer_type 必须是 sell（出售）或 buy（求购）。")
         if not isinstance(query, str) or len(query) > 200:
@@ -89,19 +91,19 @@ class Nan7Client:
         data = self._post("/v1/offer/search", payload)
         if not isinstance(data.get("offers"), list):
             raise Nan7Error("南七集市列表格式异常，不能判定为空列表。")
-        offers = [_offer(item) for item in data["offers"]]
+        offers = [_offer(item, include_seller=include_seller) for item in data["offers"]]
         for key in ("nextPage", "prevPage"):
             if data.get(key) is not None and not isinstance(data[key], (str, int)):
                 raise Nan7Error("南七集市翻页信息格式异常。")
         return {"offers": offers, "count": len(offers), "next_page": str(data["nextPage"]) if data.get("nextPage") else None, "previous_page": str(data["prevPage"]) if data.get("prevPage") else None, "query": query.strip(), "offer_type": offer_type, "category": category, "page": page, "scope": "current_page", "source": SITE_URL, "content_is_untrusted": True}
 
-    def detail(self, offer_id: str) -> dict[str, Any]:
+    def detail(self, offer_id: str, include_seller: bool = False) -> dict[str, Any]:
         if not isinstance(offer_id, str) or not valid_offer_id(offer_id):
             raise Nan7Error("offer_id 必须是商品列表返回的 ID。")
         data = self._post("/v1/offer/get", {"id": offer_id})
         if data.get("valid") is False and data.get("editable") is not True:
             return {"offer_id": offer_id, "available": False, "message": "该商品已下架或不可见。", "source": SITE_URL}
-        result = _offer(data, detail=True)
+        result = _offer(data, detail=True, include_seller=include_seller)
         if str(result["id"]) != offer_id:
             raise Nan7Error("南七集市返回的商品 ID 与请求不一致。")
         return {"offer": result, "source": SITE_URL, "content_is_untrusted": True}

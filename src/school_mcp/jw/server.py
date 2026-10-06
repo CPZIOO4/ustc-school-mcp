@@ -32,7 +32,7 @@ def school_jw_check_connection() -> dict[str, Any]:
 
 
 @mcp.tool(annotations=READ_ONLY)
-def school_jw_read_home(max_chars: int = 30000) -> dict[str, Any]:
+def school_jw_read_home(max_chars: int = 6000) -> dict[str, Any]:
     """读取教务首页文本，去除脚本与表单值；动态菜单请用 school_jw_list_modules。"""
     return JWClient().home(max_chars)
 
@@ -62,9 +62,9 @@ def school_jw_timetable(semester_id: int = 0, week: int = 0, weekday: int = 0) -
 
 
 @mcp.tool(annotations=READ_ONLY)
-def school_jw_grades(semester_id: int = 0, train_type_id: int = 1, keyword: str = "") -> dict[str, Any]:
-    """读取本人课程成绩、学分与平台汇总。semester_id=0 返回已提供成绩的全部学期，正数指定学期；train_type_id=1 为主修、5 为双学位/辅修，须在账号可用类型中。关键词只筛选课程行，汇总仍对应所请求学期。未公开的分数与绩点不返回。"""
-    return JWClient().grades(semester_id, train_type_id, keyword)
+def school_jw_grades(semester_id: int = 0, train_type_id: int = 1, keyword: str = "", summary_only: bool = False) -> dict[str, Any]:
+    """读取本人课程成绩、学分与平台汇总。semester_id=0 返回已提供成绩的全部学期，正数指定学期；train_type_id=1 为主修、5 为双学位/辅修，须在账号可用类型中。关键词只筛选课程行，汇总仍对应所请求学期。只问 GPA/均分时设置 summary_only=true，不返回课程明细；未公开的分数与绩点不返回。"""
+    return JWClient().grades(semester_id, train_type_id, keyword, summary_only)
 
 
 def run():

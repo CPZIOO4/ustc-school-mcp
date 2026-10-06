@@ -1,5 +1,7 @@
 # 邮箱首次接入与安全验证
 
+邮件查询默认采用较小范围：搜索默认 10 封摘要、正文默认 6000 字符；收件人、抄送和线程头仅在 `include_headers=true` 时返回。连接检查不返回完整邮箱地址。限速、失败退避和详细字段规则见 [请求与数据策略](request-policy.md)，内部验证码匹配所需的邮件头不受输出精简影响。
+
 `school_mail_setup_guide` 和 `.venv\Scripts\python.exe -m school_mcp mail-guide` 提供首次接入步骤。它们只检查本机文件是否存在，不解密密码、不联网、不弹窗；`configured_unchecked` 表示尚未验证。真实可用性以 `school_mail_check_connection` 为准。
 
 ## 本机接入

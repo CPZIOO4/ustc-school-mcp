@@ -5,6 +5,8 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
 
+from ..network import http_client
+
 from .parsing import course_links, login_page, page_data, safe_url
 from .session import BASE_URL, BB_HOSTS, PORTAL_PATH, BBError, load_session
 
@@ -56,7 +58,7 @@ class BBClient:
         for cookie in self.cookies:
             cookie_jar.set(cookie["name"], cookie["value"], domain=cookie["domain"], path=cookie.get("path", "/"))
         try:
-            with httpx.Client(cookies=cookie_jar, follow_redirects=False, timeout=20, transport=self.transport, headers={"User-Agent": "SchoolMCP/0.1 (personal course reader)"}) as client:
+            with http_client("bb", BBError, cookies=cookie_jar, follow_redirects=False, timeout=20, transport=self.transport, headers={"User-Agent": "SchoolMCP/0.1 (personal course reader)"}) as client:
                 for _ in range(8):
                     response = client.get(url)
                     if response.is_redirect:
@@ -97,18 +99,18 @@ class BBClient:
         filtered = [course for course in courses if keyword.casefold() in course["title"].casefold() and (not term or term in course["title"])]
         return {"courses": filtered, "count": len(filtered), "total_in_portal": len(courses), "source": str(response.url), "content_is_untrusted": True, "note": "仅返回门户 HTML 中提供的课程；若门户含动态课程模块，需要单独适配。" if not courses else ""}
 
-    def read_page(self, path: str = PORTAL_PATH, max_chars: int = 30000) -> dict:
+    def read_page(self, path: str = PORTAL_PATH, max_chars: int = 6000) -> dict:
         if not 1 <= max_chars <= 100000:
             raise BBError("max_chars 范围为 1–100000。")
         response = self.get(path)
         return page_data(response.text, str(response.url), max_chars=max_chars)
 
-    def course_page(self, course_id: str, max_chars: int = 30000) -> dict:
+    def course_page(self, course_id: str, max_chars: int = 6000) -> dict:
         if not re.fullmatch(r"_?\d+(?:_\d+)?", course_id):
             raise BBError("请使用课程列表中的有效 course_id。")
         return self.read_page(f"/webapps/blackboard/execute/launcher?type=Course&id={course_id}", max_chars=max_chars)
 
-    def announcements(self, course_id: str, max_chars: int = 30000) -> dict:
+    def announcements(self, course_id: str, max_chars: int = 6000) -> dict:
         if not re.fullmatch(r"_?\d+(?:_\d+)?", course_id):
             raise BBError("请使用课程列表中的有效 course_id。")
         return self.read_page(f"/webapps/blackboard/execute/announcement?method=search&context=course_entry&course_id={course_id}&handle=announcements_entry&mode=view", max_chars=max_chars)

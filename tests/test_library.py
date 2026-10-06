@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from network_test_support import isolate_pacing as setUpModule
+
 import json
 import os
 import tempfile
@@ -24,6 +26,15 @@ HISTORY = AUTH + '''<div id="mylib_content"><form><input name="csrf_token" value
 
 
 class LibraryParsingTests(unittest.TestCase):
+    def test_barcode_and_card_dates_are_opt_in_but_book_dates_are_preserved(self):
+        minimal = book_records(HISTORY, "loan_history")["records"][0]
+        self.assertNotIn("barcode", minimal)
+        self.assertEqual(minimal["returned_date"], "2026-09-10")
+        self.assertEqual(book_records(HISTORY, "loan_history", True)["records"][0]["barcode"], "TEST-123")
+        html = '<div class="infobox"><div class="infobox-content">超期图书</div><span class="infobox-data-number">0</span></div><div class="profile-info-row"><div class="profile-info-name">证件结束日期：</div><div class="profile-info-value">2030-01-01</div></div>'
+        self.assertNotIn("card_end_date", summary(html))
+        self.assertEqual(summary(html, True)["card_end_date"], "2030-01-01")
+
     def test_history_returns_book_fields_and_omits_tokens_and_controls(self):
         result = book_records(HISTORY, "loan_history")
         self.assertEqual(result["count"], 1)

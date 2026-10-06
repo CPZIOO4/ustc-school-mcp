@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from network_test_support import isolate_pacing as setUpModule
+
 import json
 import os
 import tempfile
@@ -18,6 +20,12 @@ OFFER = {"id": 123, "title": "测试图书", "type": "sell", "price": "12.50", "
 
 
 class Nan7RequestTests(unittest.TestCase):
+    def test_seller_identity_is_opt_in_and_still_excludes_contact_fields(self):
+        client = Nan7Client("synthetic-token", httpx.MockTransport(lambda r: httpx.Response(200, json=OFFER)))
+        self.assertNotIn("owner", client.detail("123")["offer"])
+        owner = client.detail("123", include_seller=True)["offer"]["owner"]
+        self.assertEqual(owner, {"id": 1, "name": "测试用户"})
+
     def test_search_filters_cursor_and_token_scope(self):
         calls = []
         def handle(request):

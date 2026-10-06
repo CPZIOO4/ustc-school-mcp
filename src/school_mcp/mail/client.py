@@ -15,8 +15,28 @@ from typing import Iterator
 from .config import MailConfig, MailError, local_dir
 from .credentials import load_password
 from .parsing import encode_mailbox, parse_email, parse_list_item, quote
+from .. import network
 
 MAX_MESSAGE_BYTES = 20 * 1024 * 1024
+
+
+class PacedIMAP:
+    """Pace actual IMAP commands; cached response() and cleanup do not send reads."""
+    def __init__(self, connection):
+        self.connection = connection
+
+    def __getattr__(self, name):
+        method = getattr(self.connection, name)
+        if name not in {"uid", "select", "list", "status"}:
+            return method
+
+        def call(*args, **kwargs):
+            network.limiter.acquire("mail")
+            result = method(*args, **kwargs)
+            if result[0] != "OK":
+                network.limiter.failure("mail")
+            return result
+        return call
 
 
 def _ok(status: str, data: list, action: str) -> list:
@@ -35,21 +55,31 @@ class MailClient:
         password = self.password if self.password is not None else load_password(self.config)
         connection = None
         try:
+            network.limiter.acquire("mail")
             connection = imaplib.IMAP4_SSL(self.config.host, self.config.port, ssl_context=ssl.create_default_context(), timeout=self.config.timeout)
             try:
+                network.limiter.acquire("mail")
                 connection.login(self.config.address, password)
             except imaplib.IMAP4.error:
+                network.limiter.failure("mail", authentication=True)
                 raise MailError("邮箱登录失败。请检查完整地址、客户端专用密码和 IMAP 是否已启用。") from None
-            yield connection
+            yield PacedIMAP(connection)
+            network.limiter.success("mail")
+        except network.PolicyError as exc:
+            raise MailError(str(exc)) from None
         except MailError:
             raise
         except ssl.SSLError:
+            network.limiter.failure("mail", authentication=True)
             raise MailError("邮箱 TLS 证书验证或加密连接失败。") from None
         except (socket.timeout, TimeoutError):
+            network.limiter.failure("mail")
             raise MailError("连接邮箱超时，请稍后重试。") from None
         except OSError:
+            network.limiter.failure("mail")
             raise MailError("无法连接学校邮箱，请检查网络。") from None
         except (imaplib.IMAP4.error, UnicodeError):
+            network.limiter.failure("mail")
             raise MailError("邮件服务器拒绝操作或返回了无法解析的数据。") from None
         finally:
             if connection is not None:
@@ -78,7 +108,7 @@ class MailClient:
             validity, count = self.select(connection, "INBOX")
             data = _ok(*connection.status('"INBOX"', "(UNSEEN)"), "查询未读数量")
             match = re.search(rb"UNSEEN (\d+)", data[0] or b"")
-            return {"connected": True, "address": self.config.address, "mailbox": "INBOX", "uid_validity": validity, "messages": count, "unread": int(match.group(1)) if match else None, "read_only": True}
+            return {"connected": True, "mailbox": "INBOX", "uid_validity": validity, "messages": count, "unread": int(match.group(1)) if match else None, "read_only": True}
 
     def folders(self) -> dict:
         with self.session() as connection:
@@ -147,7 +177,7 @@ class MailClient:
             raise MailError("since 应早于 before；before 当天不包含在搜索范围内。")
         return query
 
-    def search(self, mailbox: str = "INBOX", limit: int = 20, offset: int = 0, unread_only: bool = False, sender: str = "", subject: str = "", text: str = "", since: str = "", before: str = "") -> dict:
+    def search(self, mailbox: str = "INBOX", limit: int = 10, offset: int = 0, unread_only: bool = False, sender: str = "", subject: str = "", text: str = "", since: str = "", before: str = "", include_headers: bool = False) -> dict:
         if not 1 <= limit <= 50 or not 0 <= offset <= 1000000:
             raise MailError("limit 范围为 1–50，offset 必须为 0–1000000。")
         criteria = self._query(unread_only=unread_only, sender=sender, subject=subject, text=text, since=since, before=before)
@@ -162,7 +192,8 @@ class MailClient:
             selected = list(reversed(identifiers))[offset:offset + limit]
             messages = []
             for identifier in selected:
-                fetched = _ok(*connection.uid("FETCH", identifier, "(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER.FIELDS (SUBJECT FROM TO CC DATE MESSAGE-ID IN-REPLY-TO)])"), "读取邮件摘要")
+                fields = "SUBJECT FROM TO CC DATE MESSAGE-ID IN-REPLY-TO" if include_headers else "SUBJECT FROM DATE"
+                fetched = _ok(*connection.uid("FETCH", identifier, f"(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER.FIELDS ({fields})])"), "读取邮件摘要")
                 parts = [item for item in fetched if isinstance(item, tuple)]
                 if not parts:
                     # A concurrently removed message may disappear between SEARCH and FETCH.
@@ -171,6 +202,8 @@ class MailClient:
                 flags = re.search(rb"FLAGS \(([^)]*)\)", metadata)
                 size = re.search(rb"RFC822.SIZE (\d+)", metadata)
                 message = parse_email(headers, include_body=False)
+                if not include_headers:
+                    message = {k: message[k] for k in ("subject", "from", "date")}
                 message.update(uid=int(identifier), uid_validity=validity, mailbox=mailbox, flags=flags.group(1).decode().split() if flags else [], size_bytes=int(size.group(1)) if size else None)
                 messages.append(message)
             return {"mailbox": mailbox, "uid_validity": validity, "total_matches": len(identifiers), "offset": offset, "next_offset": offset + limit if offset + limit < len(identifiers) else None, "order": "uid_descending", "messages": messages, "content_is_untrusted": True}
@@ -195,13 +228,16 @@ class MailClient:
                 return raw, flags.group(1).decode().split() if flags else []
         raise MailError("邮件已不存在，请重新查询。")
 
-    def read(self, uid: int, uid_validity: int, mailbox: str = "INBOX", max_chars: int = 20000) -> dict:
+    def read(self, uid: int, uid_validity: int, mailbox: str = "INBOX", max_chars: int = 6000, include_headers: bool = False) -> dict:
         if not 1 <= max_chars <= 100000:
             raise MailError("max_chars 范围为 1–100000。")
         with self.session() as connection:
             self.select(connection, mailbox, expected=uid_validity)
             raw, flags = self._raw(connection, uid)
         result = parse_email(raw, max_chars=max_chars)
+        if not include_headers:
+            for key in ("to", "cc", "message-id", "in-reply-to"):
+                result.pop(key, None)
         result.update(uid=uid, uid_validity=uid_validity, mailbox=mailbox, flags=flags)
         return result
 

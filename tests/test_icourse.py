@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import patch
 
+from network_test_support import isolate_pacing as setUpModule
+
 import httpx
 
 from school_mcp.icourse.client import BASE, ICourseClient, ICourseError

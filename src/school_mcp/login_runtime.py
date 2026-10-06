@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .mail.config import local_dir
+from . import network
 
 SERVICES = ("bb", "jw", "library", "nan7", "young")
 TERMINAL = {"connected", "cancelled", "error", "waiting_for_verification"}
@@ -117,6 +118,9 @@ def start_login(adapter: str, notify, error_type, force_identity_login: bool = F
     try:
         with launch_lock():
             return _start_login(adapter, notify, error_type, force_identity_login)
+    except network.PolicyError as exc:
+        return {"started": False, "already_running": False, "status_tool": status_tool(adapter),
+                "retry_after_seconds": getattr(exc, "retry_after_seconds", None), "next_step": str(exc)}
     except OSError:
         return {"started": False, "already_running": False, "status_tool": status_tool(adapter),
                 "next_step": "登录启动暂时不可用：另一请求可能正在启动，或私人目录不可写。请稍后查看状态，不要连续重复启动。"}
@@ -132,6 +136,7 @@ def _start_login(adapter: str, notify, error_type, force_identity_login: bool = 
             return {"started": False, "already_running": other == adapter, "busy_service": other,
                     "status_tool": status_tool(other),
                     "next_step": f"{other} 的登录进程仍在运行，先调用 {status_tool(other)} 查看进度，再继续。"}
+    network.limiter.acquire("identity")
     notify("starting", "已请求后台登录，正在恢复已保存的认证状态。")
     executable = Path(sys.executable)
     if os.name == "nt" and executable.with_name("pythonw.exe").exists():

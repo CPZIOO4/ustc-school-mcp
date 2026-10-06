@@ -42,6 +42,7 @@ class MailCodeTests(unittest.TestCase):
         self.assertEqual(request.poll(), "654321")
         self.assertEqual(client.read.call_count, 1)
         self.assertEqual(client.read.call_args.args, (43, 123))
+        self.assertTrue(client.read.call_args.kwargs["include_headers"])
 
     def test_ambiguous_code_mail_is_not_guessed(self):
         with self.assertRaisesRegex(MailError, "多封"):
