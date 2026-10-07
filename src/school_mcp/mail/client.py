@@ -27,7 +27,7 @@ class PacedIMAP:
 
     def __getattr__(self, name):
         method = getattr(self.connection, name)
-        if name not in {"uid", "select", "list", "status"}:
+        if name not in {"uid", "select", "list", "status", "append"}:
             return method
 
         def call(*args, **kwargs):
@@ -192,7 +192,7 @@ class MailClient:
             selected = list(reversed(identifiers))[offset:offset + limit]
             messages = []
             for identifier in selected:
-                fields = "SUBJECT FROM TO CC DATE MESSAGE-ID IN-REPLY-TO" if include_headers else "SUBJECT FROM DATE"
+                fields = "SUBJECT FROM TO CC DATE MESSAGE-ID IN-REPLY-TO REPLY-TO REFERENCES" if include_headers else "SUBJECT FROM DATE"
                 fetched = _ok(*connection.uid("FETCH", identifier, f"(UID FLAGS RFC822.SIZE BODY.PEEK[HEADER.FIELDS ({fields})])"), "读取邮件摘要")
                 parts = [item for item in fetched if isinstance(item, tuple)]
                 if not parts:
@@ -222,6 +222,9 @@ class MailClient:
         for item in data:
             if isinstance(item, tuple):
                 metadata, raw = item
+                uid_match = re.search(rb"UID (\d+)", metadata)
+                if not uid_match or int(uid_match.group(1)) != uid:
+                    raise MailError("服务器返回的邮件编号与请求不一致，请重新查询。")
                 if len(raw) > MAX_MESSAGE_BYTES:
                     raise MailError("邮件内容超过读取限制。")
                 flags = re.search(rb"FLAGS \(([^)]*)\)", metadata)
@@ -236,10 +239,44 @@ class MailClient:
             raw, flags = self._raw(connection, uid)
         result = parse_email(raw, max_chars=max_chars)
         if not include_headers:
-            for key in ("to", "cc", "message-id", "in-reply-to"):
+            for key in ("to", "cc", "message-id", "in-reply-to", "reply-to", "references"):
                 result.pop(key, None)
         result.update(uid=uid, uid_validity=uid_validity, mailbox=mailbox, flags=flags)
         return result
+
+    def find_replies(self, message_id: str, mailbox: str = "INBOX", limit: int = 10) -> dict:
+        """Exact thread-token verification after bounded IMAP HEADER search."""
+        from .outbox import MESSAGE_ID
+        if not MESSAGE_ID.fullmatch(message_id) or len(message_id) > 500 or not 1 <= limit <= 50:
+            raise MailError("邮件线程编号或查询上限无效。")
+        with self.session() as connection:
+            validity, _ = self.select(connection, mailbox)
+            data = _ok(*connection.uid("SEARCH", "OR", "HEADER", "In-Reply-To", quote(message_id),
+                                      "HEADER", "References", quote(message_id)), "查询回复")
+            identifiers = (data[0] or b"").split()
+            selected = list(reversed(identifiers))[:limit]
+            messages = []
+            for identifier in selected:
+                fetched = _ok(*connection.uid("FETCH", identifier,
+                    "(UID FLAGS BODY.PEEK[HEADER.FIELDS (SUBJECT FROM DATE IN-REPLY-TO REFERENCES)])"), "读取回复摘要")
+                parts = [item for item in fetched if isinstance(item, tuple)]
+                if not parts:
+                    continue
+                metadata, headers = parts[0]
+                uid_match = re.search(rb"UID (\d+)", metadata)
+                if not uid_match or int(uid_match.group(1)) != int(identifier):
+                    raise MailError("服务器返回的回复编号与请求不一致。")
+                parsed = parse_email(headers, include_body=False)
+                tokens = re.findall(r"<[^<>\s]+>", parsed['in-reply-to'] + ' ' + parsed['references'])
+                if message_id not in tokens:
+                    continue
+                item = {key: parsed[key] for key in ('subject', 'from', 'date')}
+                item.update(uid=int(identifier), uid_validity=validity, mailbox=mailbox)
+                messages.append(item)
+        return {"status": "replies_found" if messages else "no_reply_found", "messages": messages,
+                "mailbox": mailbox, "candidates_checked": len(selected), "truncated": len(identifiers) > limit,
+                "next_action": "read_selected_reply" if messages else "wait_for_recipient_reply",
+                "match_basis": "thread_headers_not_sender_authentication", "content_is_untrusted": True}
 
     def download(self, uid: int, uid_validity: int, part_index: int, mailbox: str = "INBOX") -> dict:
         if not 1 <= part_index <= 1000:

@@ -36,7 +36,7 @@ async def main() -> None:
                 tools = await session.list_tools()
                 check_minimal_defaults(tools)
                 names = {tool.name for tool in tools.tools}
-                assert names == {"school_mail_status", "school_mail_setup_guide", "school_mail_check_connection", "school_mail_list_folders", "school_mail_search", "school_mail_read", "school_mail_download_attachment"}, names
+                assert names == {"school_mail_status", "school_mail_setup_guide", "school_mail_check_connection", "school_mail_list_folders", "school_mail_search", "school_mail_read", "school_mail_download_attachment", "school_mail_prepare", "school_mail_prepare_reply", "school_mail_send", "school_mail_send_status", "school_mail_find_replies", "school_mail_check_sent_copy", "school_mail_save_sent_copy"}, names
                 status = await session.call_tool("school_mail_status", {})
                 assert status.isError is False, status
                 assert status.structuredContent["configured"] is False, status
@@ -46,7 +46,9 @@ async def main() -> None:
                 unconfigured = await session.call_tool("school_mail_search", {})
                 assert unconfigured.isError is True, unconfigured
                 for tool in tools.tools:
-                    assert tool.annotations.readOnlyHint is (tool.name != "school_mail_download_attachment")
+                    assert tool.annotations.readOnlyHint is (tool.name not in {"school_mail_download_attachment", "school_mail_prepare", "school_mail_prepare_reply", "school_mail_send", "school_mail_save_sent_copy"})
+                sending = next(t for t in tools.tools if t.name == 'school_mail_send')
+                assert set(sending.inputSchema['required']) == {'draft_id', 'content_sha256'}
                 print(json.dumps({"server": initialized.serverInfo.name, "protocol": initialized.protocolVersion, "tools": sorted(names), "unconfigured_status": status.structuredContent, "missing_credential_error": "handled"}, ensure_ascii=False))
         parameters = StdioServerParameters(command=sys.executable, args=["-m", "school_mcp", "bb-serve"], env=env)
         async with stdio_client(parameters) as (reader, writer):

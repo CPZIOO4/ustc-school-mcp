@@ -43,10 +43,16 @@ Blackboard、教务系统和个人图书馆共用经本人授权保存的统一�
 | `school_mail_search` | 按未读、发件人、主题、全文、日期搜索并分页 |
 | `school_mail_read` | 读取正文、邮件头和附件清单 |
 | `school_mail_download_attachment` | 保存指定附件到本地私人目录 |
+| `school_mail_prepare` / `school_mail_prepare_reply` | 准备新邮件或单人回复，固定内容及附件并返回预览，不发送 |
+| `school_mail_send` | 按用户授权实际发送指定草稿，同一草稿最多尝试一次 |
+| `school_mail_send_status` / `school_mail_find_replies` | 查询本地发送回执、按线程查找回复 |
+| `school_mail_check_sent_copy` / `school_mail_save_sent_copy` | 查询已发送副本，按归档授权补存缺失副本，防止同一草稿重复追加 |
 
 第一版通过 IMAP TLS 连接 `mail.ustc.edu.cn:993`，使用完整邮箱地址和客户端专用密码。打开文件夹时使用只读模式，读取使用 `BODY.PEEK`，保留未读状态。单封邮件上限为 20 MiB，正文默认返回 6000 字符，可调整到 100000 字符。邮件搜索默认 10 封；收件人、抄送和线程头仅在 `include_headers=true` 时返回。
 
 搜索结果按 UID 从大到小排列。读取和下载必须提供搜索结果中的 `mailbox`、`uid` 和 `uid_validity`，避免文件夹重新编号后读取到另一封邮件。中文搜索使用 UTF-8；服务器不支持该搜索条件时会返回提示。
+
+邮件发送走 SMTP TLS 465，复用客户端专用密码，按“准备 → 检查 → 发送 → 查结果”的 [邮件 Skill](.agents/skills/school-services/references/mail-workflows.md) 执行。草稿和附件快照用 Windows DPAPI 加密；发送失败或结果不明不自动重试。服务器接受不等于投递成功。需要保留已发送记录时，通过独立工具先查后补存副本，不再次发信。完整合同、限制和状态解释见 [发信说明](docs/mail-sending.md)。
 
 ## 本地安装
 

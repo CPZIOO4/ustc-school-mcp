@@ -12,6 +12,7 @@
 mail.json
 mail.json.tmp
 mail.credentials.tmp
+mail-outbox.sqlite3*
 *.session.tmp
 *-session.tmp
 mail-setup-*/

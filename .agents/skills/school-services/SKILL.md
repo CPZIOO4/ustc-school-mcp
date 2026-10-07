@@ -1,9 +1,9 @@
 ---
 name: school-services
-description: 使用本项目的学校 MCP 查询中科大学校资料、恢复已授权登录，并按已验证入口预览教务申请、团学活动、奖项申报、学生骨干述职和图书馆服务。适用于学校资料查询、业务流程摸底和办理前准备；不执行校方业务提交。
+description: 使用本项目的学校 MCP 收发与回复邮件、查询中科大学校资料、恢复已授权登录，并按已验证入口预览教务申请、团学活动、奖项申报、学生骨干述职和图书馆服务。适用于邮件处理、学校资料查询和业务预览；邮件按用户明确授权发送，其他校方业务不提交。
 ---
 
-# 学校查询与业务预览
+# 学校邮件、查询与业务预览
 
 先按用户问题选择实际可用的 `school_*` 工具。工具未加载时解释需要重新加载已注册 MCP；不把配置文件存在当作当前对话已经能够调用工具。通过状态工具了解本机配置，通过对应 `check_connection` 验证真实连通性。公共教务通知和评课社区不需要邮箱或个人统一身份登录。
 
@@ -24,6 +24,7 @@ description: 使用本项目的学校 MCP 查询中科大学校资料、恢复�
 | 任务 | 标准流程 |
 | --- | --- |
 | 盘点能用什么、核实已实现能力 | [业务目录与证据](references/business-catalog.md) |
+| 收信、起草、发送、回复、附件验收及已发送归档 | [邮件固定流程](references/mail-workflows.md)，发送和归档依据用户授权 |
 | 课表成绩、课程调整、考试、证明、科研毕业和学分申请 | [教务流程](references/academic-workflows.md) |
 | 第二课堂学时、活动、奖项、学生骨干述职、实践与场馆 | [青春科大流程](references/young-workflows.md) |
 | 按条件找活动、比较项目和场次、核查学时与完成要求 | [青春科大项目分析](references/young-project-analysis.md) |
@@ -51,7 +52,7 @@ description: 使用本项目的学校 MCP 查询中科大学校资料、恢复�
 
 | 用户目的 | 工具顺序与解释 |
 | --- | --- |
-| 邮件 | `school_mail_search` 使用发件人、主题或日期缩小范围，再用结果的 `mailbox`、`uid`、`uid_validity` 调用 `school_mail_read`。保留未读状态。附件仅在用户明确要求时通过 `school_mail_download_attachment` 保存，不执行附件。 |
+| 邮件 | 先读 [邮件固定流程](references/mail-workflows.md)。查信用 search → read；发信或回复用 prepare/prepare_reply → 检查 preview → 有发送授权时 send → send_status/find_replies。保留未读状态，不执行附件。 |
 | BB 课程资料 | `school_bb_list_courses` 按学期或名称筛选，再读取返回的课程 ID、菜单或受支持路径。课程主页、公告和文件链接不表示文件已经下载。 |
 | 个人教务 | `school_jw_list_semesters` 确认范围后读取课程、课表或成绩。课程与课表默认当前学期；成绩默认全学期，要按用户问题指定范围。 |
 | 图书馆 | 选择摘要、当前借阅、当前显示历史或公共服务目录。历史不是完整记录；不续借、预约或变更借阅状态。旧 OPAC 的业务传输可能为 HTTP，使用已文档化能力，无法证实连接时如实交接。 |

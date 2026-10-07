@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .mail.config import local_dir
 
-INTERVALS = {"mail": 0.5, "bb": 1.0, "jw": 1.0, "library": 1.0,
+INTERVALS = {"mail": 0.5, "smtp": 2.0, "bb": 1.0, "jw": 1.0, "library": 1.0,
              "library-public": 1.0, "teach": 1.0, "nan7": 1.0, "icourse": 1.0,
              "young": 2.0, "identity": 5.0}
 

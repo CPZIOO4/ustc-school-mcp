@@ -84,7 +84,7 @@ class _HTMLText(HTMLParser):
 
 def parse_email(raw: bytes, *, include_body: bool = True, max_chars: int = 20000) -> dict:
     message = BytesParser(policy=policy.default).parsebytes(raw)
-    result = {key: str(message.get(key, "")) for key in ("subject", "from", "to", "cc", "date", "message-id", "in-reply-to")}
+    result = {key: str(message.get(key, "")) for key in ("subject", "from", "to", "cc", "date", "message-id", "in-reply-to", "reply-to", "references")}
     if not include_body:
         return result
     attachments: list[dict] = []
