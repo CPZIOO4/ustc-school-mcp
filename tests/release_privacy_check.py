@@ -15,7 +15,8 @@ CANARIES = (".local/mail.json", ".local/ustc-identity.device.dpapi", "nested/mai
 LITERAL = re.compile(r'''(?i)(?:password|token|secret|authorization)["']?\s*[:=]\s*["']([^"'\r\n]{8,})["']''')
 EMAIL = re.compile(r"([A-Za-z0-9_.+-]+)@(?:mail\.)?ustc\.edu\.cn", re.I)
 SYNTHETIC_NAMES = {"student", "id", "your-name", "other", "someone", "office"}
-CANARIES += ('nested/mail-outbox.sqlite3', 'nested/mail-outbox.sqlite3-journal')
+CANARIES += ('nested/mail-outbox.sqlite3', 'nested/mail-outbox.sqlite3-journal', 'nested/mail-exports/example.eml')
+CANARIES += ('nested/bb-submissions.sqlite3', 'nested/bb-submissions.sqlite3-wal')
 
 
 def git(*args: str, data: bytes | None = None) -> bytes:
@@ -24,7 +25,9 @@ def git(*args: str, data: bytes | None = None) -> bytes:
 
 def private(path: str) -> bool:
     parts = PurePosixPath(path.lower()).parts
-    if parts[-1].startswith('mail-outbox.sqlite3'):
+    if 'mail-exports' in parts:
+        return True
+    if parts[-1].startswith(('mail-outbox.sqlite3', 'bb-submissions.sqlite3')):
         return True
     return any(part in PRIVATE_DIRS or part.startswith("mail-setup-") for part in parts) or any(fnmatch.fnmatch(parts[-1], pattern) for pattern in PRIVATE_PATTERNS) or any(part.startswith(".env") and part != ".env.example" for part in parts)
 

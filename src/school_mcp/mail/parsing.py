@@ -56,7 +56,8 @@ def parse_list_item(item: bytes | tuple) -> dict:
     if name.startswith('"') and name.endswith('"'):
         name = re.sub(r"\\(.)", r"\1", name[1:-1])
     flags = match.group(1).decode("ascii").split()
-    return {"name": decode_mailbox(name), "flags": flags, "selectable": "\\Noselect" not in flags}
+    delimiter = None if match.group(2) == b'NIL' else re.sub(r'\\(.)', r'\1', match.group(2).decode('ascii')[1:-1])
+    return {"name": decode_mailbox(name), "flags": flags, "selectable": "\\Noselect" not in flags, "delimiter": delimiter}
 
 
 class _HTMLText(HTMLParser):

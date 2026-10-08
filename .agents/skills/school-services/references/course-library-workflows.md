@@ -2,6 +2,8 @@
 
 ## BB 课程学习入口
 
+标准BB个人作业的查找、材料准备、授权提交与结果核验改用 [BB作业流程](bb-assignment-workflows.md)。以下课程菜单预览边界仍适用；仅查询不触发提交。
+
 1. `school_bb_list_courses` 按用户所问学期/课程定位，不猜课程 ID。
 2. `school_bb_read_course` 读取结果中的课程 ID，按实际菜单选公告、内容或资源。公告用 `school_bb_course_announcements`；受支持的只读页面用 `school_bb_read_page`，参数遵循工具定义。
 3. 对“看看有哪些业务”，只进入菜单与工具列表，汇总名称和支持情况。2026-10-05 在一门课程中进入了公告、工具、小组、我的成绩、课程消息五页；课程之间菜单可能不同。

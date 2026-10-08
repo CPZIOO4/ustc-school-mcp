@@ -11,7 +11,7 @@ from pathlib import Path
 from .mail.config import local_dir
 from . import network
 
-SERVICES = ("bb", "jw", "library", "nan7", "young")
+SERVICES = ("bb", "jw", "library", "nan7", "young", "finance")
 TERMINAL = {"connected", "cancelled", "error", "waiting_for_verification"}
 
 
@@ -59,6 +59,44 @@ def running(pid: int) -> bool:
         return False
 
 
+def process_started_at(pid: int) -> float | None:
+    """Windows reuses PIDs; compare creation time with the saved worker record."""
+    if os.name != 'nt':
+        return None
+    import ctypes
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    kernel.GetProcessTimes.restype = wintypes.BOOL
+    kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel.OpenProcess(0x1000, False, pid)
+    if not handle:
+        return None
+    try:
+        times = [wintypes.FILETIME() for _ in range(4)]
+        if not kernel.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+            return None
+        ticks = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+        return ticks / 10_000_000 - 11644473600
+    finally:
+        kernel.CloseHandle(handle)
+
+
+def worker_running(adapter: str, pid: int) -> bool:
+    if not running(pid):
+        return False
+    created = process_started_at(pid)
+    if created is None:
+        return True  # Cannot establish identity: preserve the live-worker lock.
+    try:
+        recorded = (local_dir() / f'{adapter}-login.pid').stat().st_mtime
+    except OSError:
+        return True
+    return created <= recorded + 0.01
+
+
 
 def progress(adapter: str) -> dict:
     """Historical connected state is never evidence of a current live connection."""
@@ -69,7 +107,7 @@ def progress(adapter: str) -> dict:
     except (OSError, ValueError):
         data = None
     pid = worker_pid(adapter)
-    alive = running(pid) if pid else None
+    alive = worker_running(adapter, pid) if pid else None
     result = {"login_progress": data, "login_running": alive, "network_checked": False,
               "connection_state": "unchecked", "status_tool": status_tool(adapter),
               "check_tool": f"school_{adapter}_check_connection"}
@@ -132,7 +170,7 @@ def _start_login(adapter: str, notify, error_type, force_identity_login: bool = 
     # All adapters write the same remembered-device state. Serialize their login workers.
     for other in SERVICES:
         pid = worker_pid(other)
-        if pid and running(pid):
+        if pid and worker_running(other, pid):
             return {"started": False, "already_running": other == adapter, "busy_service": other,
                     "status_tool": status_tool(other),
                     "next_step": f"{other} 的登录进程仍在运行，先调用 {status_tool(other)} 查看进度，再继续。"}

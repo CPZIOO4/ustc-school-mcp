@@ -5,15 +5,26 @@ import json
 import os
 import sys
 import tempfile
+from pathlib import Path
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+
+EXTRA_MAIL_TOOLS = {
+    'school_mail_prepare_forward', 'school_mail_prepare_reply_all', 'school_mail_create_folder',
+    'school_mail_prepare_actions', 'school_mail_execute_actions', 'school_mail_action_status',
+    'school_mail_prepare_undo', 'school_mail_export', 'school_mail_get_classification_rules',
+    'school_mail_save_classification_rules', 'school_mail_preview_classification',
+    'school_mail_prepare_classification', 'school_mail_read_thread',
+}
+EXTRA_MAIL_WRITES = EXTRA_MAIL_TOOLS - {'school_mail_action_status', 'school_mail_get_classification_rules', 'school_mail_read_thread'}
 
 
 def check_minimal_defaults(tools):
     expected = {
         "school_mail_search": {"limit": 10, "include_headers": False},
         "school_mail_read": {"max_chars": 6000, "include_headers": False},
+        "school_mail_list_drafts": {"state": "ready", "limit": 10, "include_recipients": False},
         "school_jw_grades": {"summary_only": False},
         "school_library_summary": {"include_card_dates": False},
         "school_library_list_loans": {"include_identifiers": False},
@@ -36,7 +47,7 @@ async def main() -> None:
                 tools = await session.list_tools()
                 check_minimal_defaults(tools)
                 names = {tool.name for tool in tools.tools}
-                assert names == {"school_mail_status", "school_mail_setup_guide", "school_mail_check_connection", "school_mail_list_folders", "school_mail_search", "school_mail_read", "school_mail_download_attachment", "school_mail_prepare", "school_mail_prepare_reply", "school_mail_send", "school_mail_send_status", "school_mail_find_replies", "school_mail_check_sent_copy", "school_mail_save_sent_copy"}, names
+                assert names == EXTRA_MAIL_TOOLS | {"school_mail_status", "school_mail_setup_guide", "school_mail_check_connection", "school_mail_list_folders", "school_mail_search", "school_mail_read", "school_mail_download_attachment", "school_mail_prepare", "school_mail_prepare_reply", "school_mail_send", "school_mail_send_status", "school_mail_find_replies", "school_mail_check_sent_copy", "school_mail_save_sent_copy", "school_mail_list_drafts", "school_mail_update_draft", "school_mail_cancel_draft"}, names
                 status = await session.call_tool("school_mail_status", {})
                 assert status.isError is False, status
                 assert status.structuredContent["configured"] is False, status
@@ -46,9 +57,33 @@ async def main() -> None:
                 unconfigured = await session.call_tool("school_mail_search", {})
                 assert unconfigured.isError is True, unconfigured
                 for tool in tools.tools:
-                    assert tool.annotations.readOnlyHint is (tool.name not in {"school_mail_download_attachment", "school_mail_prepare", "school_mail_prepare_reply", "school_mail_send", "school_mail_save_sent_copy"})
+                    assert tool.annotations.readOnlyHint is (tool.name not in EXTRA_MAIL_WRITES | {"school_mail_download_attachment", "school_mail_prepare", "school_mail_prepare_reply", "school_mail_send", "school_mail_save_sent_copy", "school_mail_update_draft", "school_mail_cancel_draft"})
                 sending = next(t for t in tools.tools if t.name == 'school_mail_send')
                 assert set(sending.inputSchema['required']) == {'draft_id', 'content_sha256'}
+                listing = next(t for t in tools.tools if t.name == 'school_mail_list_drafts')
+                assert set(listing.inputSchema['properties']['state']['enum']) == {'ready', 'cancelled', 'superseded', 'all'}
+                if os.name == 'nt':
+                    # Actual protocol + DPAPI lifecycle in a separate synthetic mailbox.
+                    # No SMTP credentials exist. No valid ready draft is ever sent.
+                    (Path(directory) / 'mail.json').write_text(json.dumps({'address': 'student@mail.ustc.edu.cn'}), encoding='utf-8')
+                    async def call(name, args):
+                        result = await session.call_tool(name, args)
+                        assert not result.isError, result
+                        return result.structuredContent
+                    original = await call('school_mail_prepare', {'to': ['recipient@example.com'], 'subject': 'synthetic lifecycle', 'body': 'synthetic first body'})
+                    listed = await call('school_mail_list_drafts', {})
+                    assert listed['drafts'][0]['draft_id'] == original['draft_id']
+                    revised = await call('school_mail_update_draft', {'draft_id': original['draft_id'], 'content_sha256': original['content_sha256'], 'body': 'synthetic revised body'})
+                    assert revised['mutation_applied'] and revised['draft_id'] != original['draft_id']
+                    blocked = await call('school_mail_send', {'draft_id': original['draft_id'], 'content_sha256': original['content_sha256']})
+                    assert blocked['status'] == 'superseded' and not blocked['can_send']
+                    cancelled = await call('school_mail_cancel_draft', {'draft_id': revised['draft_id'], 'content_sha256': revised['content_sha256']})
+                    assert cancelled['status'] == 'cancelled' and cancelled['mutation_applied']
+                    blocked = await call('school_mail_send', {'draft_id': revised['draft_id'], 'content_sha256': revised['content_sha256']})
+                    assert blocked['status'] == 'cancelled' and not blocked['can_send']
+                    assert not (await call('school_mail_list_drafts', {}))['drafts']
+                    assert len((await call('school_mail_list_drafts', {'state': 'all'}))['drafts']) == 2
+                    print(json.dumps({'synthetic_draft_lifecycle': 'passed', 'SMTP_attempted': False}))
                 print(json.dumps({"server": initialized.serverInfo.name, "protocol": initialized.protocolVersion, "tools": sorted(names), "unconfigured_status": status.structuredContent, "missing_credential_error": "handled"}, ensure_ascii=False))
         parameters = StdioServerParameters(command=sys.executable, args=["-m", "school_mcp", "bb-serve"], env=env)
         async with stdio_client(parameters) as (reader, writer):
@@ -57,12 +92,12 @@ async def main() -> None:
                 tools = await session.list_tools()
                 check_minimal_defaults(tools)
                 names = {tool.name for tool in tools.tools}
-                assert names == {"school_bb_status", "school_bb_check_connection", "school_bb_list_courses", "school_bb_read_course", "school_bb_read_page", "school_bb_course_announcements", "school_bb_auth_status", "school_bb_reconnect"}, names
+                assert names == {"school_bb_status", "school_bb_check_connection", "school_bb_list_courses", "school_bb_read_course", "school_bb_read_page", "school_bb_course_announcements", "school_bb_auth_status", "school_bb_reconnect", "school_bb_list_assignments", "school_bb_prepare_assignment_files", "school_bb_inspect_assignment", "school_bb_prepare_submission", "school_bb_submit_assignment", "school_bb_submission_status"}, names
                 status = await session.call_tool("school_bb_status", {})
                 assert status.isError is False and status.structuredContent["configured"] is False
                 missing = await session.call_tool("school_bb_list_courses", {})
                 assert missing.isError is True
-                assert all(tool.annotations.readOnlyHint is (tool.name != "school_bb_reconnect") for tool in tools.tools)
+                assert all(tool.annotations.readOnlyHint is (tool.name not in {"school_bb_reconnect", "school_bb_prepare_assignment_files", "school_bb_prepare_submission", "school_bb_submit_assignment", "school_bb_submission_status"}) for tool in tools.tools)
                 auth = await session.call_tool("school_bb_auth_status", {})
                 assert auth.isError is False and auth.structuredContent["credentials_saved"] is False
                 print(json.dumps({"server": initialized.serverInfo.name, "tools": sorted(names), "unconfigured_status": "handled"}, ensure_ascii=False))
@@ -100,7 +135,7 @@ async def main() -> None:
                 print(json.dumps({"server": initialized.serverInfo.name, "tools": sorted(names), "unconfigured_status": "handled"}, ensure_ascii=False))
 
 
-        for adapter in ("teach", "nan7", "icourse", "young"):
+        for adapter in ("teach", "nan7", "icourse", "young", "finance"):
             parameters = StdioServerParameters(command=sys.executable, args=["-m", "school_mcp", f"{adapter}-serve"], env=env)
             async with stdio_client(parameters) as (reader, writer):
                 async with ClientSession(reader, writer) as session:
@@ -120,6 +155,14 @@ async def main() -> None:
                         assert status.structuredContent["configured"] is False
                         missing = await session.call_tool("school_young_read_home", {})
                         assert missing.isError is True
+                    if adapter == 'finance':
+                        assert names == {'school_finance_entry_points', 'school_finance_status', 'school_finance_reconnect',
+                                         'school_finance_check_connection', 'school_finance_list_services', 'school_finance_inspect_smart', 'school_finance_workflow_guide'}
+                        assert status.structuredContent['configured'] is False
+                        entry = await session.call_tool('school_finance_entry_points', {})
+                        assert not entry.isError and entry.structuredContent['network_checked'] is False
+                        missing = await session.call_tool('school_finance_check_connection', {})
+                        assert missing.isError
                     print(json.dumps({"server": initialized.serverInfo.name, "tools": sorted(names), "public_adapter_status": "handled"}, ensure_ascii=False))
 
 

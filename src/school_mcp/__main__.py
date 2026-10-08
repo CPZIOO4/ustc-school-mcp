@@ -6,8 +6,8 @@ import json
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="School MCP")
-    parser.add_argument("command", nargs="?", default="serve", choices=("serve", "doctor", "setup", "mail-guide", "check", "bb-serve", "bb-setup", "bb-email-verification", "bb-login", "bb-check", "jw-serve", "jw-login", "jw-check", "library-serve", "library-login", "library-check", "teach-serve", "nan7-serve", "nan7-login", "icourse-serve", "young-serve", "young-login"))
-    parser.add_argument("--service", action="append", choices=("mail", "bb", "jw", "library", "teach", "nan7", "icourse", "young"), help="Limit doctor to selected services; repeat for multiple services")
+    parser.add_argument("command", nargs="?", default="serve", choices=("serve", "doctor", "setup", "mail-guide", "check", "bb-serve", "bb-setup", "bb-email-verification", "bb-login", "bb-check", "jw-serve", "jw-login", "jw-check", "library-serve", "library-login", "library-check", "teach-serve", "nan7-serve", "nan7-login", "icourse-serve", "young-serve", "young-login", "finance-serve", "finance-login", "finance-check"))
+    parser.add_argument("--service", action="append", choices=("mail", "bb", "jw", "library", "teach", "nan7", "icourse", "young", "finance"), help="Limit doctor to selected services; repeat for multiple services")
     parser.add_argument("--address", default="", help="Prefill the local setup window with this email address")
     parser.add_argument("--force-identity-login", action="store_true", help="Run the registered USTC identity flow even if the BB session is valid")
     parser.add_argument("--email-verification", action="store_true", help="Authorize bb-setup to read the connected mailbox for USTC login verification codes")
@@ -34,10 +34,24 @@ def main() -> None:
             parser.error("--headed is only supported for login commands")
         import os
         os.environ["SCHOOL_MCP_BROWSER_HEADED"] = "1"
-    if args.command in {"teach-serve", "nan7-serve", "icourse-serve", "young-serve"}:
+    if args.command in {"teach-serve", "nan7-serve", "icourse-serve", "young-serve", "finance-serve"}:
         from importlib import import_module
         adapter = args.command.removesuffix("-serve")
         import_module(f"school_mcp.{adapter}.server").run()
+    elif args.command == "finance-login":
+        from .finance.login import run
+        from .finance.session import FinanceError
+        try:
+            run()
+        except FinanceError as exc:
+            parser.exit(1, str(exc) + "\n")
+    elif args.command == "finance-check":
+        from .finance.client import FinanceClient
+        from .finance.session import FinanceError
+        try:
+            print(json.dumps(FinanceClient().check(), ensure_ascii=False))
+        except FinanceError as exc:
+            parser.exit(1, str(exc) + "\n")
     elif args.command == "young-login":
         from .young.login import run
         from .young.session import YoungError

@@ -27,7 +27,7 @@ class PacedIMAP:
 
     def __getattr__(self, name):
         method = getattr(self.connection, name)
-        if name not in {"uid", "select", "list", "status", "append"}:
+        if name not in {"uid", "select", "list", "status", "append", "capability", "create"}:
             return method
 
         def call(*args, **kwargs):
@@ -89,10 +89,10 @@ class MailClient:
                     pass
 
     @staticmethod
-    def select(connection: imaplib.IMAP4_SSL, mailbox: str, expected: int | None = None) -> tuple[int, int]:
+    def select(connection: imaplib.IMAP4_SSL, mailbox: str, expected: int | None = None, *, readonly: bool = True) -> tuple[int, int]:
         if not mailbox or len(mailbox) > 512:
             raise MailError("邮件文件夹名称无效。")
-        data = _ok(*connection.select(quote(encode_mailbox(mailbox)), readonly=True), "打开文件夹")
+        data = _ok(*connection.select(quote(encode_mailbox(mailbox)), readonly=readonly), "打开文件夹")
         _, validity_data = connection.response("UIDVALIDITY")
         try:
             validity = int(validity_data[0])
@@ -111,9 +111,11 @@ class MailClient:
             return {"connected": True, "mailbox": "INBOX", "uid_validity": validity, "messages": count, "unread": int(match.group(1)) if match else None, "read_only": True}
 
     def folders(self) -> dict:
+        from .actions import is_archive
         with self.session() as connection:
             data = _ok(*connection.list(), "查询文件夹")
-            return {"folders": [parse_list_item(item) for item in data if item]}
+            items = [parse_list_item(item) for item in data if item]
+            return {"folders": [{**item, 'is_archive': is_archive(item['name'], items)} for item in items]}
 
     def verification_snapshot(self) -> dict:
         """Capture the next UID without fetching any existing message headers."""
@@ -228,7 +230,9 @@ class MailClient:
                 if len(raw) > MAX_MESSAGE_BYTES:
                     raise MailError("邮件内容超过读取限制。")
                 flags = re.search(rb"FLAGS \(([^)]*)\)", metadata)
-                return raw, flags.group(1).decode().split() if flags else []
+                if flags is None:
+                    raise MailError("服务器未返回邮件标记，无法可靠确认已读状态。")
+                return raw, flags.group(1).decode().split()
         raise MailError("邮件已不存在，请重新查询。")
 
     def read(self, uid: int, uid_validity: int, mailbox: str = "INBOX", max_chars: int = 6000, include_headers: bool = False) -> dict:

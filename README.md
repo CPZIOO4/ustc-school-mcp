@@ -1,6 +1,6 @@
 # USTC School MCP
 
-面向个人学校事务的实验性 MCP 项目。当前提供八个独立服务和项目内 [学校查询与业务预览 Skill](.agents/skills/school-services/SKILL.md)，各网站的实际支持范围见下文。适配器包括中科大邮箱、Blackboard、教务系统、图书馆、教务处网站、南七集市、评课社区和青春科大。
+面向个人学校事务的实验性 MCP 项目。当前提供九个独立服务和项目内 [学校查询与业务预览 Skill](.agents/skills/school-services/SKILL.md)，各网站的实际支持范围见下文。适配器包括中科大邮箱、Blackboard、教务系统、图书馆、教务处网站、南七集市、评课社区、青春科大及财务平台。
 
 Skill 包含教务、团学、BB 和图书馆的查询及办理前预览流程，具体入口和验证边界见 [业务目录](.agents/skills/school-services/references/business-catalog.md)。网页已到达的业务不等于已实现 MCP 接口；本项目不会据此自动提交申请、报名、预约或修改记录。
 
@@ -34,6 +34,8 @@ Blackboard、教务系统和个人图书馆共用经本人授权保存的统一�
 
 ## 当前能力
 
+财务平台共7个工具，已通过学校统一认证并验证智能报销登录页面；动态菜单和实际报销业务仍待逐项适配，见 [财务说明](docs/finance.md)。财务另提供官方指南中的业务分类和材料准备路线。BB共14个工具，支持标准个人作业查找、材料冻结、授权提交及新尝试附件核验；草稿、小组和未知模板暂不支持，见 [BB说明](docs/bb.md)。
+
 | 工具 | 用途 |
 | --- | --- |
 | `school_mail_status` | 检查本地配置及凭据文件存在性，不解密、不联网；不是已连接证明 |
@@ -44,11 +46,21 @@ Blackboard、教务系统和个人图书馆共用经本人授权保存的统一�
 | `school_mail_read` | 读取正文、邮件头和附件清单 |
 | `school_mail_download_attachment` | 保存指定附件到本地私人目录 |
 | `school_mail_prepare` / `school_mail_prepare_reply` | 准备新邮件或单人回复，固定内容及附件并返回预览，不发送 |
+| `school_mail_list_drafts` / `school_mail_update_draft` / `school_mail_cancel_draft` | 找回本机草稿、原子替换版本、作废未发送草稿；不修改服务器草稿 |
 | `school_mail_send` | 按用户授权实际发送指定草稿，同一草稿最多尝试一次 |
 | `school_mail_send_status` / `school_mail_find_replies` | 查询本地发送回执、按线程查找回复 |
-| `school_mail_check_sent_copy` / `school_mail_save_sent_copy` | 查询已发送副本，按归档授权补存缺失副本，防止同一草稿重复追加 |
+| `school_mail_check_sent_copy` / `school_mail_save_sent_copy` | 查询已发送副本，按保存发件记录的授权补存缺失副本，防止同一草稿重复追加 |
+| `school_mail_prepare_forward` / `school_mail_prepare_reply_all` | 准备转发或回复全部，检查预览后复用发信工具 |
+| `school_mail_create_folder` / `school_mail_prepare_actions` / `school_mail_execute_actions` | 创建指定目录、标已读/未读、移动及归档；先固定选择再执行 |
+| `school_mail_action_status` / `school_mail_prepare_undo` | 查逐项操作记录、只读核验或准备受状态保护的撤销计划 |
+| `school_mail_export` | 导出 EML 原文或可读 TXT/MD，多封自动 ZIP |
+| `school_mail_get_classification_rules` / `school_mail_save_classification_rules` | 管理用户确认的类别与规则，不运行后台任务 |
+| `school_mail_preview_classification` / `school_mail_prepare_classification` | 规则优先、未匹配可建议、不确定留原位，生成归档计划 |
+| `school_mail_read_thread` | 按线程头收集往来与缺失证据，供代理总结 |
 
-第一版通过 IMAP TLS 连接 `mail.ustc.edu.cn:993`，使用完整邮箱地址和客户端专用密码。打开文件夹时使用只读模式，读取使用 `BODY.PEEK`，保留未读状态。单封邮件上限为 20 MiB，正文默认返回 6000 字符，可调整到 100000 字符。邮件搜索默认 10 封；收件人、抄送和线程头仅在 `include_headers=true` 时返回。
+邮箱通过 IMAP TLS 连接 `mail.ustc.edu.cn:993`，使用完整邮箱地址和客户端专用密码。查询时只读打开文件夹，使用 `BODY.PEEK` 保留未读状态；只有明确的修改工具使用可写选择。单封邮件上限为 20 MiB，正文默认返回 6000 字符，可调整到 100000 字符。邮件搜索默认 10 封；收件人、抄送和线程头仅在 `include_headers=true` 时返回。
+
+邮箱现有30个工具。只有“归档文件夹”及其子目录算归档；其他目录移动和已发送副本保存不计入归档。自动分类由用户整理指令触发，优先既定规则，不确定与认证邮件留原位。操作记录与分类规则加密保存，导出仅放私人目录。用法、限制和验证边界见 [邮件整理说明](docs/mail-organization.md) 与 [整理 Skill](.agents/skills/school-services/references/mail-organization.md)。
 
 搜索结果按 UID 从大到小排列。读取和下载必须提供搜索结果中的 `mailbox`、`uid` 和 `uid_validity`，避免文件夹重新编号后读取到另一封邮件。中文搜索使用 UTF-8；服务器不支持该搜索条件时会返回提示。
 
@@ -106,6 +118,7 @@ codex mcp add ustc-teach --env "SCHOOL_MCP_LOCAL_DIR=$privateDir" --env PYTHONUT
 codex mcp add nan7market --env "SCHOOL_MCP_LOCAL_DIR=$privateDir" --env PYTHONUTF8=1 -- "$pythonExe" -m school_mcp nan7-serve
 codex mcp add icourse --env "SCHOOL_MCP_LOCAL_DIR=$privateDir" --env PYTHONUTF8=1 -- "$pythonExe" -m school_mcp icourse-serve
 codex mcp add ustc-young --env "SCHOOL_MCP_LOCAL_DIR=$privateDir" --env PYTHONUTF8=1 -- "$pythonExe" -m school_mcp young-serve
+codex mcp add ustc-finance --env "SCHOOL_MCP_LOCAL_DIR=$privateDir" --env PYTHONUTF8=1 -- "$pythonExe" -m school_mcp finance-serve
 codex mcp get ustc-mail
 ```
 
@@ -133,7 +146,7 @@ codex mcp get ustc-mail
 .venv\Scripts\python.exe tests\release_privacy_check.py
 ```
 
-行为测试覆盖未读状态、中文搜索与文件夹、UID 重新编号、大小限制、附件路径、MIME 正文解析、统一认证状态、邮箱验证码回退、邮箱许可绑定、首次引导和保存失败回滚、教务学期筛选、课表日期映射、成绩可见性、图书馆借阅表格、网站检索与分页、Cookie 传输范围和 Windows 凭据加密。独立 stdio 脚本启动八个真实 MCP 子进程，验证握手、工具发现和未配置错误。这些测试使用合成数据。
+行为测试覆盖未读状态、中文搜索与文件夹、UID 重新编号、大小限制、附件路径、MIME 正文解析、统一认证状态、邮箱验证码回退、邮箱许可绑定、首次引导和保存失败回滚、教务学期筛选、课表日期映射、成绩可见性、图书馆借阅表格、网站检索与分页、Cookie 传输范围和 Windows 凭据加密。独立 stdio 脚本启动九个真实 MCP 子进程，验证握手、工具发现和未配置错误。这些测试使用合成数据。
 
 已授权检查真实连接时，可运行 `.venv\Scripts\python.exe tests\smoke_live_readonly.py --run`，或用 `--adapter mail` 等参数选择服务。它只调用连接检查，使用现有会话、不启动重新登录；不读取私人邮件正文、成绩、借阅历史或附件。输出仅为脱敏状态，不包含账号、凭据或原始页面。当前验收结果见 [本轮检查记录](docs/validation.md)。
 
@@ -147,7 +160,8 @@ codex mcp get ustc-mail
 src/school_mcp/
   server.py           MCP 工具和 stdio 入口
   mail/               中科大邮箱适配器、MIME 解析、本地配置
-  bb/                 Blackboard 会话、课程与页面读取、独立 MCP 入口
+  bb/                 Blackboard 会话、课程与作业入口、本地材料准备
+  finance/            财务门户与智能报销登录、入口发现
   jw/                 教务登录、学期、课程、课表、成绩、独立 MCP 入口
   library/            图书馆登录、个人借阅、公共导航、独立 MCP 入口
   teach/              教务处通知与正文、独立 MCP 入口

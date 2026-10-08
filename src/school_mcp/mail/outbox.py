@@ -11,8 +11,10 @@ import sqlite3
 import ssl
 import uuid
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from email import policy
 from email.message import EmailMessage
+from email.parser import BytesParser
 from email.utils import formatdate, getaddresses, make_msgid
 from pathlib import Path
 
@@ -23,6 +25,10 @@ from .credentials import _dpapi, load_password
 MAX_BYTES = 20 * 1024 * 1024  # Local MIME limit, not a claim about server limits.
 ADDRESS = re.compile(r"[A-Za-z0-9!#$%&'*+/=?^_`{|}~.-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,63}\Z")
 MESSAGE_ID = re.compile(r"<[^\s<>\x00-\x1f\x7f]+@[^\s<>\x00-\x1f\x7f]+>\Z")
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def valid_address(value: str) -> bool:
@@ -89,6 +95,28 @@ class Outbox:
         with self.database() as db:
             db.execute('UPDATE drafts SET state=?, payload=? WHERE id=?', (state, encrypted, identifier))
 
+    def replace_ready(self, identifier: str, original: dict, replacement: dict) -> str | None:
+        new_id = uuid.uuid4().hex
+        original = {**original, 'superseded_by': new_id, 'superseded_at': utc_now()}
+        replacement = {**replacement, 'previous_draft_id': identifier,
+                       'revision': original.get('revision', 1) + 1}
+        old_encrypted, new_encrypted = self.encode(original), self.encode(replacement)
+        with self.database() as db:
+            updated = db.execute("UPDATE drafts SET state='superseded', payload=? WHERE id=? AND state='ready'",
+                                 (old_encrypted, identifier)).rowcount
+            if not updated:
+                return None
+            # Insertion failure rolls back the old state as well; no orphan sendable revision.
+            db.execute('INSERT INTO drafts VALUES (?, ?, ?)', (new_id, 'ready', new_encrypted))
+        return new_id
+
+    def cancel_ready(self, identifier: str, payload: dict) -> bool:
+        encrypted = self.encode({**payload, 'cancelled_at': utc_now()})
+        with self.database() as db:
+            updated = db.execute("UPDATE drafts SET state='cancelled', payload=? WHERE id=? AND state='ready'",
+                                 (encrypted, identifier)).rowcount
+        return updated == 1
+
     def copy_attempt(self, identifier: str) -> dict | None:
         with self.database() as db:
             row = db.execute('SELECT state, payload FROM sent_copies WHERE draft_id=?', (identifier,)).fetchone()
@@ -108,14 +136,14 @@ class Outbox:
             db.execute('UPDATE sent_copies SET state=? WHERE draft_id=?', (state, identifier))
 
 
-def prepare(config: MailConfig, *, to: list[str], subject: str, body: str,
+def _compose(config: MailConfig, *, to: list[str], subject: str, body: str,
             cc: list[str] | None = None, bcc: list[str] | None = None,
             attachments: list[str] | None = None, reply_headers: dict | None = None,
-            store: Outbox | None = None) -> dict:
+            retained_attachments: list[tuple[str, str, bytes]] | None = None) -> dict:
     """No network. Freeze MIME and attachment bytes before returning the preview."""
     fields = {'to': to, 'cc': cc or [], 'bcc': bcc or []}
     issues = []
-    if not to:
+    if not to and not cc and not bcc:
         issues.append({'field': 'to', 'reason': 'required'})
     for field, values in fields.items():
         if not isinstance(values, list) or any(not valid_address(value) for value in values):
@@ -127,13 +155,14 @@ def prepare(config: MailConfig, *, to: list[str], subject: str, body: str,
     if not body.strip() or len(body) > 100000 or '\x00' in body:
         issues.append({'field': 'body', 'reason': 'required_text_maximum_100000'})
     paths = attachments or []
-    if not isinstance(paths, list) or len(paths) > 10:
+    if not isinstance(paths, list) or len(paths) + len(retained_attachments or []) > 10:
         issues.append({'field': 'attachments', 'reason': 'maximum_10_explicit_file_paths'})
     if issues:
         return {'status': 'needs_input', 'issues': issues, 'next_action': 'correct_fields_then_prepare', 'sent': False}
     message = EmailMessage(policy=policy.SMTP)
     message['From'] = config.address
-    message['To'] = ', '.join(to)
+    if to:
+        message['To'] = ', '.join(to)
     if cc:
         message['Cc'] = ', '.join(cc)
     # Bcc participates only in the envelope, never in serialized MIME headers.
@@ -150,6 +179,11 @@ def prepare(config: MailConfig, *, to: list[str], subject: str, body: str,
     message.set_content(body)
     attachment_info = []
     total = 0
+    for filename, mime, data in retained_attachments or []:
+        total += len(data)
+        main, sub = mime.split('/', 1)
+        message.add_attachment(data, maintype=main, subtype=sub, filename=filename)
+        attachment_info.append({'filename': filename, 'size_bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
     for index, filename in enumerate(paths):
         try:
             path = Path(filename)
@@ -169,11 +203,23 @@ def prepare(config: MailConfig, *, to: list[str], subject: str, body: str,
     raw = message.as_bytes()
     if len(raw) > MAX_BYTES:
         return {'status': 'needs_input', 'issues': [{'field': 'attachments', 'reason': 'MIME_exceeds_20_MiB'}], 'next_action': 'reduce_message_size_then_prepare', 'sent': False}
-    payload = {'account': config.address, 'recipients': list(dict.fromkeys(to + (cc or []) + (bcc or []))),
+    payload = {'account': config.address, 'created_at': utc_now(), 'revision': 1,
+               'recipients': list(dict.fromkeys(to + (cc or []) + (bcc or []))),
                'raw': base64.b64encode(raw).decode(), 'sha256': hashlib.sha256(raw).hexdigest(),
                'message_id': str(message['Message-ID']),
                'preview': {**fields, 'from': config.address, 'subject': subject, 'body': body,
                            'attachments': attachment_info, 'reply_to_message_id': (reply_headers or {}).get('In-Reply-To')}}
+    return payload
+
+
+def prepare(config: MailConfig, *, to: list[str], subject: str, body: str,
+            cc: list[str] | None = None, bcc: list[str] | None = None,
+            attachments: list[str] | None = None, reply_headers: dict | None = None,
+            store: Outbox | None = None) -> dict:
+    payload = _compose(config, to=to, subject=subject, body=body, cc=cc, bcc=bcc,
+                       attachments=attachments, reply_headers=reply_headers)
+    if payload.get('status') == 'needs_input':
+        return payload
     store = store or Outbox()
     identifier = store.create(payload)
     return receipt(identifier, 'ready', payload, include_preview=True)
@@ -184,13 +230,17 @@ def receipt(identifier: str, state: str, payload: dict, *, include_preview: bool
     actions = {'ready': 'send_only_if_user_authorized', 'sending': 'check_status_do_not_resend',
                'accepted': 'find_replies_or_report_server_acceptance', 'partial': 'review_refused_recipients_do_not_resend_all',
                'rejected': 'correct_issue_then_prepare_new_draft', 'failed_before_data': 'resolve_error_then_prepare_new_draft',
-               'unknown': 'verify_with_recipient_do_not_resend'}
+               'unknown': 'verify_with_recipient_do_not_resend', 'cancelled': 'stop_draft_cancelled',
+               'superseded': 'inspect_replacement_draft'}
     result = {'draft_id': identifier, 'status': state, 'content_sha256': payload['sha256'],
               'message_id': payload['message_id'], 'next_action': actions[state],
               'server_accepted': state in {'accepted', 'partial'}, 'delivery_confirmed': False,
               'can_send': state == 'ready', 'sent_folder_copy': 'check_with_school_mail_check_sent_copy'}
     if 'result' in payload:
         result.update(payload['result'])
+    for key in ('created_at', 'revision', 'previous_draft_id', 'superseded_by', 'superseded_at', 'cancelled_at'):
+        if key in payload:
+            result[key] = payload[key]
     if include_preview:
         preview = dict(payload['preview'])
         preview['body'] = preview['body'][:6000]
@@ -203,6 +253,111 @@ def receipt(identifier: str, state: str, payload: dict, *, include_preview: bool
 def status(identifier: str, *, include_preview: bool = False, store: Outbox | None = None) -> dict:
     state, payload = (store or Outbox()).get(identifier)
     return receipt(identifier, state, payload, include_preview=include_preview)
+
+
+def _editable(config: MailConfig, store: Outbox, identifier: str, digest: str) -> tuple[str, dict]:
+    state, payload = store.get(identifier)
+    if config.address != payload['account']:
+        raise MailError('当前邮箱与草稿账号不一致，已停止修改。')
+    if digest != payload['sha256']:
+        raise MailError('草稿校验摘要不一致，请重新查看原草稿。')
+    return state, payload
+
+
+def update(config: MailConfig, identifier: str, content_sha256: str, *, to: list[str] | None = None,
+           subject: str | None = None, body: str | None = None, cc: list[str] | None = None,
+           bcc: list[str] | None = None, attachments: list[str] | None = None,
+           store: Outbox | None = None) -> dict:
+    store = store or Outbox()
+    state, old = _editable(config, store, identifier, content_sha256)
+    if state != 'ready':
+        return {**receipt(identifier, state, old), 'mutation_applied': False, 'error_code': 'draft_not_editable'}
+    if all(value is None for value in (to, subject, body, cc, bcc, attachments)):
+        return {**receipt(identifier, state, old, include_preview=True), 'mutation_applied': False}
+    raw = base64.b64decode(old['raw'], validate=True)
+    if hashlib.sha256(raw).hexdigest() != old['sha256']:
+        raise MailError('草稿内容校验失败，已停止修改。')
+    original = BytesParser(policy=policy.default).parsebytes(raw)
+    retained = []
+    if attachments is None:
+        for part in original.iter_attachments():
+            data = part.get_payload(decode=True)
+            if data is None:
+                raise MailError('原草稿附件无法保留，请明确提供替换附件。')
+            retained.append((part.get_filename() or 'attachment', part.get_content_type(), data))
+    preview = old['preview']
+    replacement = _compose(config, to=preview['to'] if to is None else to,
+        subject=preview['subject'] if subject is None else subject, body=preview['body'] if body is None else body,
+        cc=preview['cc'] if cc is None else cc, bcc=preview['bcc'] if bcc is None else bcc,
+        attachments=attachments, retained_attachments=retained,
+        reply_headers={key: str(original.get(key, '')) for key in ('In-Reply-To', 'References')})
+    if replacement.get('status') == 'needs_input':
+        # Validation can take time: report the CURRENT source state if another caller won.
+        current_state, current = store.get(identifier)
+        if current_state != 'ready':
+            return {**receipt(identifier, current_state, current), 'mutation_applied': False, 'error_code': 'draft_not_editable'}
+        return {**replacement, 'source_draft_id': identifier, 'source_status': 'ready',
+                'mutation_applied': False, 'next_action': 'correct_fields_then_update_same_draft'}
+    new_id = store.replace_ready(identifier, old, replacement)
+    if new_id is None:
+        return {**status(identifier, store=store), 'mutation_applied': False, 'error_code': 'draft_not_editable'}
+    return {**status(new_id, include_preview=True, store=store), 'mutation_applied': True}
+
+
+def cancel(config: MailConfig, identifier: str, content_sha256: str, *, store: Outbox | None = None) -> dict:
+    store = store or Outbox()
+    state, payload = _editable(config, store, identifier, content_sha256)
+    if state == 'cancelled':
+        return {**receipt(identifier, state, payload), 'mutation_applied': False}
+    if state != 'ready':
+        return {**receipt(identifier, state, payload), 'mutation_applied': False, 'error_code': 'draft_not_cancellable'}
+    applied = store.cancel_ready(identifier, payload)
+    result = {**status(identifier, store=store), 'mutation_applied': applied}
+    if not applied:
+        result['error_code'] = 'draft_not_cancellable'
+    return result
+
+
+def list_drafts(config: MailConfig, *, state: str = 'ready', limit: int = 10, cursor: str = '',
+                include_recipients: bool = False, store: Outbox | None = None) -> dict:
+    if state not in {'ready', 'cancelled', 'superseded', 'all'} or type(limit) is not int or not 1 <= limit <= 50:
+        raise MailError('草稿状态须为 ready/cancelled/superseded/all，limit 范围为 1–50。')
+    if cursor and (not cursor.isascii() or not cursor.isdigit() or len(cursor) > 19):
+        raise MailError('请使用上次列表返回的 next_cursor。')
+    boundary = int(cursor) if cursor else 2**63 - 1
+    if not 0 < boundary <= 2**63 - 1:
+        raise MailError('草稿分页游标无效。')
+    store = store or Outbox()
+    clause, params = ('', []) if state == 'all' else (' AND state=?', [state])
+    items, examined, last = [], 0, boundary
+    with store.database() as db:
+        rows = db.execute('SELECT rowid,id,state,payload FROM drafts WHERE rowid<?' + clause +
+                          ' ORDER BY rowid DESC LIMIT 100', [boundary, *params])
+        for rowid, identifier, stored_state, encrypted in rows:
+            examined += 1
+            last = rowid
+            payload = json.loads(_dpapi(encrypted, decrypt=True))
+            if payload['account'] != config.address:
+                continue
+            preview = payload['preview']
+            item = {'draft_id': identifier, 'status': stored_state, 'content_sha256': payload['sha256'],
+                    'subject': preview['subject'][:160], 'subject_truncated': len(preview['subject']) > 160,
+                    'recipient_count': len(payload['recipients']), 'attachment_count': len(preview['attachments']),
+                    'created_at': payload.get('created_at'), 'revision': payload.get('revision', 1),
+                    'can_send': stored_state == 'ready'}
+            for key in ('previous_draft_id', 'superseded_by', 'cancelled_at', 'superseded_at'):
+                if key in payload:
+                    item[key] = payload[key]
+            if include_recipients:
+                item.update({key: preview[key] for key in ('to', 'cc', 'bcc')})
+            items.append(item)
+            if len(items) == limit:
+                break
+        more = db.execute('SELECT 1 FROM drafts WHERE rowid<?' + clause + ' LIMIT 1', [last, *params]).fetchone() is not None
+    return {'status': 'drafts_listed', 'drafts': items, 'state_filter': state, 'next_cursor': str(last) if more else None,
+            'order': 'creation_descending', 'scan_limited': examined == 100 and more,
+            'scope': 'current_account_local_outbox', 'content_is_untrusted': True,
+            'next_action': 'inspect_selected_draft' if items else ('continue_next_cursor' if more else 'no_matching_drafts')}
 
 
 def send(config: MailConfig, identifier: str, content_sha256: str, *, store: Outbox | None = None) -> dict:
@@ -222,7 +377,10 @@ def send(config: MailConfig, identifier: str, content_sha256: str, *, store: Out
     try:
         network.limiter.acquire('smtp')
     except network.CooldownError as exc:
-        return {**receipt(identifier, 'ready', payload), 'next_action': 'wait_then_send_same_draft',
+        current = status(identifier, store=store)
+        if current['status'] != 'ready':
+            return current
+        return {**current, 'next_action': 'wait_then_send_same_draft',
                 'retry_after_seconds': exc.retry_after_seconds}
     if not store.claim(identifier):
         return status(identifier, store=store)

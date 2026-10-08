@@ -13,12 +13,14 @@ mail.json
 mail.json.tmp
 mail.credentials.tmp
 mail-outbox.sqlite3*
+bb-submissions.sqlite3*
 *.session.tmp
 *-session.tmp
 mail-setup-*/
 *.pid
 *.har
 attachments/
+mail-exports/
 downloads/
 diagnostics/
 traces/

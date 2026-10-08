@@ -77,6 +77,23 @@ class LoginRuntimeTests(unittest.TestCase):
         self.assertEqual(result["status_tool"], "school_bb_auth_status")
         spawn.assert_not_called()
 
+    def test_recycled_pid_cannot_block_login_or_appear_running(self):
+        self.saved('connected')
+        recorded = (Path(self.directory.name) / 'bb-login.pid').stat().st_mtime
+        with patch.object(runtime, 'running', return_value=True), \
+             patch.object(runtime, 'process_started_at', return_value=recorded + 3600), \
+             patch.object(runtime.subprocess, 'Popen', return_value=Mock(pid=124)) as spawn:
+            self.assertFalse(runtime.progress('bb')['login_running'])
+            self.assertTrue(runtime.start_login('jw', Mock(), RuntimeError)['started'])
+            spawn.assert_called_once()
+
+    def test_original_process_creation_retains_live_lock(self):
+        self.saved('authenticating')
+        recorded = (Path(self.directory.name) / 'bb-login.pid').stat().st_mtime
+        with patch.object(runtime, 'running', return_value=True), \
+             patch.object(runtime, 'process_started_at', return_value=recorded - 1):
+            self.assertTrue(runtime.worker_running('bb', 123))
+
     def test_spawn_failure_reports_error_not_permanent_starting(self):
         notify = Mock()
         with patch.object(runtime.subprocess, "Popen", side_effect=OSError("synthetic-private-path")):

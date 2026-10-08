@@ -104,3 +104,12 @@ codex mcp get ustc-bb
 - [中科大 BB 平台入口](https://www.bb.ustc.edu.cn/)
 - [学校学生操作说明：统一身份认证与进入课程](https://www.teach.ustc.edu.cn/wp-content/uploads/2020/02/%E5%AD%A6%E7%94%9F%E6%93%8D%E4%BD%9C%E6%89%8B%E5%86%8C-%E4%BA%94%E6%AD%A5%E8%B5%B0.pdf)
 - [Playwright 认证会话说明](https://playwright.dev/python/docs/auth)
+# 作业流程扩展（2026-10-08）
+
+当前BB共14个工具。作业查询用 `school_bb_list_assignments` 与 `school_bb_inspect_assignment`；历史查看默认省略附件名、成绩、评语和表单值。
+
+正式提交工具为 `school_bb_prepare_submission`、`school_bb_submit_assignment`、`school_bb_submission_status`。支持标准个人作业首次提交、换文件重交与复用历史附件。准备冻结材料并展示目标、附言、截止及迟交信息；执行绑定摘要、账号及会话，复查当前要求与历史状态后使用后台Chrome原生表单。结果通过新attempt_id和回读附件SHA-256核验。重复调用同一ID不重发；状态不明只读核验，同一作业写锁不会自动解除。
+
+原 `school_bb_prepare_assignment_files` 为兼容保留，仍只冻结本地材料，其ID不能用于新提交工具。草稿续写、小组作业、未知模板、无法解析截止日期不自动提交。准备记录有效期24小时；总50MiB/10文件是本机限制。详见 [BB作业Skill](../.agents/skills/school-services/references/bb-assignment-workflows.md)。
+
+2026-10-08在用户明确授权后，以后台Chrome完成一项原PDF重交，并验证新尝试下载文件与原件一致。正式工具链另经真实MCP与后台Chrome的隔离页面验证；本轮没有为测试再次写入用户作业。首次提交无真实课程验收，不能将隔离验证替代真实验收。

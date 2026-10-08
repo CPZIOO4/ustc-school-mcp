@@ -1,6 +1,6 @@
 ---
 name: school-services
-description: 使用本项目的学校 MCP 收发与回复邮件、查询中科大学校资料、恢复已授权登录，并按已验证入口预览教务申请、团学活动、奖项申报、学生骨干述职和图书馆服务。适用于邮件处理、学校资料查询和业务预览；邮件按用户明确授权发送，其他校方业务不提交。
+description: 使用本项目的学校 MCP 收发与回复邮件、查询中科大学校资料、恢复已授权登录，并按已验证入口预览学校业务。支持BB标准个人作业查找、准备、授权提交与结果核验。邮件发送和BB重交依据用户明确授权，其他校方业务保持预览。
 ---
 
 # 学校邮件、查询与业务预览
@@ -24,12 +24,15 @@ description: 使用本项目的学校 MCP 收发与回复邮件、查询中科�
 | 任务 | 标准流程 |
 | --- | --- |
 | 盘点能用什么、核实已实现能力 | [业务目录与证据](references/business-catalog.md) |
-| 收信、起草、发送、回复、附件验收及已发送归档 | [邮件固定流程](references/mail-workflows.md)，发送和归档依据用户授权 |
+| 收信、草稿查找/修改/作废、发送、回复、附件验收及已发送副本 | [邮件固定流程](references/mail-workflows.md)，发送和副本保存依据用户授权 |
+| 转发、回复全部、已读标记、移动/归档、撤销、导出、自动分类、往来摘要 | [邮件整理流程](references/mail-organization.md)，只有归档文件夹及其子目录算归档 |
 | 课表成绩、课程调整、考试、证明、科研毕业和学分申请 | [教务流程](references/academic-workflows.md) |
 | 第二课堂学时、活动、奖项、学生骨干述职、实践与场馆 | [青春科大流程](references/young-workflows.md) |
 | 按条件找活动、比较项目和场次、核查学时与完成要求 | [青春科大项目分析](references/young-project-analysis.md) |
 | 了解第二课堂报名、作品上传与提交路径及实现边界 | [报名与作品提交路线](references/young-registration-submission.md)，只读识别已完成，实际提交未验证 |
 | BB 课程、图书馆及邮件和通知辅助查询 | [课程与图书馆流程](references/course-library-workflows.md) |
+| BB 作业查找、历史尝试查看、材料准备及授权重交流程 | [BB 作业流程](references/bb-assignment-workflows.md)，标准个人作业准备、提交、结果核验已有工具，按明确授权执行 |
+| 财务处官网、统一认证及智能报销入口 | [财务接入流程](references/finance-workflows.md)，登录已验证，报销业务尚未逐项适配 |
 
 浏览器可达不等于 MCP 已适配。优先使用现有工具；未适配的业务仅在用户要求预览时，以后台 Playwright + Chrome、独立 context 复用该站点已有会话。入口从实时菜单获取，不猜课程 ID、账号标识或深层操作 URL。不要为了绕过工具拒绝而放宽路径白名单。
 

@@ -6,9 +6,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from importlib import import_module
 
-SERVICES = ("mail", "bb", "jw", "library", "teach", "nan7", "icourse", "young")
+SERVICES = ("mail", "bb", "jw", "library", "teach", "nan7", "icourse", "young", "finance")
 CLIENTS = {"bb": "BBClient", "jw": "JWClient", "library": "LibraryClient", "teach": "TeachClient",
-           "nan7": "Nan7Client", "icourse": "ICourseClient", "young": "YoungClient"}
+           "nan7": "Nan7Client", "icourse": "ICourseClient", "young": "YoungClient", "finance": "FinanceClient"}
 
 
 def check_service(service: str) -> dict:
@@ -35,7 +35,7 @@ def check_service(service: str) -> dict:
                       next_tool=f"school_{service}_check_connection")
         if service == "mail":
             report["setup_tool"] = "school_mail_setup_guide"
-        elif service in {"bb", "jw", "library", "nan7", "young"}:
+        elif service in {"bb", "jw", "library", "nan7", "young", "finance"}:
             report["reconnect_tool"] = f"school_{service}_reconnect"
             report["note"] = "先用检查工具区分网络问题与登录失效；已有登录授权时可后台重连。"
         else:
