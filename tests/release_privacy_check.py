@@ -10,13 +10,16 @@ from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE_DIRS = {".local", ".venv", "attachments", "downloads", "diagnostics", "traces", "mail-setup"}
-PRIVATE_PATTERNS = ("*.dpapi*", "*.log", "*.pid", "*.har", "storage-state*.json", "storage_state*.json", "mail.json*", "mail.credentials.tmp", "*.session.tmp", "*-session.tmp", "trace.zip", "*.login-status.*", "*-login-status.*")
+PRIVATE_PATTERNS = ("register-young-target.py", "*.dpapi*", "*.log", "*.pid", "*.har", "storage-state*.json", "storage_state*.json", "mail.json*", "mail.credentials.tmp", "*.session.tmp", "*-session.tmp", "trace.zip", "*.login-status.*", "*-login-status.*")
 CANARIES = (".local/mail.json", ".local/ustc-identity.device.dpapi", "nested/mail.json", "nested/mail.credentials.tmp", "nested/test.session.dpapi.old", "nested/test.session.tmp", "nested/nan7-session.tmp", "nested/nan7-login-status.json", "nested/nan7-login-status.tmp", "nested/attachments/test.eml", "nested/storage-state-test.json", "nested/trace.zip", "nested/test.har", "nested/mail-setup-test/mail.json.new")
 LITERAL = re.compile(r'''(?i)(?:password|token|secret|authorization)["']?\s*[:=]\s*["']([^"'\r\n]{8,})["']''')
 EMAIL = re.compile(r"([A-Za-z0-9_.+-]+)@(?:mail\.)?ustc\.edu\.cn", re.I)
 SYNTHETIC_NAMES = {"student", "id", "your-name", "other", "someone", "office"}
 CANARIES += ('nested/mail-outbox.sqlite3', 'nested/mail-outbox.sqlite3-journal', 'nested/mail-exports/example.eml')
 CANARIES += ('nested/bb-submissions.sqlite3', 'nested/bb-submissions.sqlite3-wal')
+CANARIES += ('nested/young-registrations.sqlite3', 'nested/young-registrations.sqlite3-wal')
+CANARIES += ('nested/business-plans.sqlite3', 'nested/business-plans.sqlite3-wal', 'nested/icourse-session.dpapi')
+CANARIES += ('nested/register-young-target.py', '.local/register-young-target.py', 'nested/script-jobs.sqlite3', 'nested/script-jobs.sqlite3-wal', 'nested/script-jobs.sqlite3-journal')
 
 
 def git(*args: str, data: bytes | None = None) -> bytes:
@@ -27,7 +30,7 @@ def private(path: str) -> bool:
     parts = PurePosixPath(path.lower()).parts
     if 'mail-exports' in parts:
         return True
-    if parts[-1].startswith(('mail-outbox.sqlite3', 'bb-submissions.sqlite3')):
+    if parts[-1].startswith(('mail-outbox.sqlite3', 'bb-submissions.sqlite3', 'business-plans.sqlite3', 'young-registrations.sqlite3', 'script-jobs.sqlite3')):
         return True
     return any(part in PRIVATE_DIRS or part.startswith("mail-setup-") for part in parts) or any(fnmatch.fnmatch(parts[-1], pattern) for pattern in PRIVATE_PATTERNS) or any(part.startswith(".env") and part != ".env.example" for part in parts)
 

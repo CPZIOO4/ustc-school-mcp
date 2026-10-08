@@ -5,6 +5,8 @@
 
 # Local credentials, sessions, personal data, and logs
 .local/
+# Personal one-off enrollment launcher, even if moved outside .local
+register-young-target.py
 *.log
 *.dpapi
 *.dpapi.tmp
@@ -14,6 +16,9 @@ mail.json.tmp
 mail.credentials.tmp
 mail-outbox.sqlite3*
 bb-submissions.sqlite3*
+business-plans.sqlite3*
+young-registrations.sqlite3*
+script-jobs.sqlite3*
 *.session.tmp
 *-session.tmp
 mail-setup-*/

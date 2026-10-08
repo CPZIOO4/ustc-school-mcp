@@ -113,6 +113,20 @@ class RequestLimiter:
 limiter = RequestLimiter()
 
 
+def bounded_request(client, method, url, *, maximum_bytes, error_type, **kwargs):
+    """Read a bounded decoded body, without replaying or following redirects."""
+    import httpx
+    with client.stream(method, url, **kwargs) as response:
+        body = bytearray()
+        for chunk in response.iter_bytes(chunk_size=65536):
+            if len(body) + len(chunk) > maximum_bytes:
+                raise error_type('响应超过读取上限；本次结果未确认，不能直接重发。')
+            body.extend(chunk)
+        # iter_bytes has already decompressed the response.
+        headers={k:v for k,v in response.headers.items() if k.lower() not in {'content-encoding','content-length'}}
+        return httpx.Response(response.status_code,headers=headers,content=bytes(body),request=response.request)
+
+
 @contextmanager
 def http_client(service: str, error_type, **kwargs):
     """Pace every explicit request/redirect, including streamed response bodies."""

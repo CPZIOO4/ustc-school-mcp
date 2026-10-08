@@ -6,7 +6,7 @@ import json
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="School MCP")
-    parser.add_argument("command", nargs="?", default="serve", choices=("serve", "doctor", "setup", "mail-guide", "check", "bb-serve", "bb-setup", "bb-email-verification", "bb-login", "bb-check", "jw-serve", "jw-login", "jw-check", "library-serve", "library-login", "library-check", "teach-serve", "nan7-serve", "nan7-login", "icourse-serve", "young-serve", "young-login", "finance-serve", "finance-login", "finance-check"))
+    parser.add_argument("command", nargs="?", default="serve", choices=("serve", "doctor", "setup", "mail-guide", "check", "bb-serve", "bb-setup", "bb-email-verification", "bb-login", "bb-check", "jw-serve", "jw-login", "jw-check", "library-serve", "library-login", "library-check", "teach-serve", "nan7-serve", "nan7-login", "icourse-serve", "icourse-login", "young-serve", "young-login", "young-registration-run", "young-registration-status", "young-registration-worker", "finance-serve", "finance-login", "finance-check", "script-worker"))
     parser.add_argument("--service", action="append", choices=("mail", "bb", "jw", "library", "teach", "nan7", "icourse", "young", "finance"), help="Limit doctor to selected services; repeat for multiple services")
     parser.add_argument("--address", default="", help="Prefill the local setup window with this email address")
     parser.add_argument("--force-identity-login", action="store_true", help="Run the registered USTC identity flow even if the BB session is valid")
@@ -15,7 +15,43 @@ def main() -> None:
     policy = parser.add_mutually_exclusive_group()
     policy.add_argument("--enable", action="store_true", help="Explicitly bind email verification to the currently configured mailbox")
     policy.add_argument("--disable", action="store_true", help="Disable email verification without replacing identity credentials")
+    parser.add_argument("--job-id", help="Private scheduled registration job ID")
+    parser.add_argument("--schedule-id", help="Native scheduled worker ID")
+    parser.add_argument("--private-dir", help="Private directory for a scheduled worker")
     args = parser.parse_args()
+    if args.command == 'script-worker':
+        if not args.job_id or not args.private_dir:
+            parser.error('script-worker requires --job-id and --private-dir')
+        import os
+        os.environ['SCHOOL_MCP_LOCAL_DIR'] = args.private_dir
+        os.environ['SCHOOL_MCP_BROWSER_HEADED'] = '0'
+        from .script_jobs import run
+        run(args.job_id)
+        return
+    if args.command == "young-registration-worker":
+        if not args.schedule_id or not args.private_dir:
+            parser.error("worker requires --schedule-id and --private-dir")
+        import os
+        os.environ["SCHOOL_MCP_LOCAL_DIR"] = args.private_dir
+        os.environ["SCHOOL_MCP_BROWSER_HEADED"] = "0"
+        from .young.worker import run_schedule
+        run_schedule(args.schedule_id)
+        return
+    if args.schedule_id or args.private_dir:
+        parser.error("--schedule-id/--private-dir require young-registration-worker")
+    if args.command in {"young-registration-run", "young-registration-status"}:
+        if not args.job_id:
+            parser.error("--job-id is required")
+        from .young.registration import run_job, status_job
+        from .young.session import YoungError
+        try:
+            result = (run_job if args.command.endswith("-run") else status_job)(args.job_id)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        except YoungError as exc:
+            parser.exit(1, str(exc) + "\n")
+        return
+    if args.job_id:
+        parser.error("--job-id only applies to young registration commands")
     if args.service and args.command != "doctor":
         parser.error("--service requires doctor")
     if args.command == "doctor":
@@ -30,6 +66,8 @@ def main() -> None:
     if (args.enable or args.disable) and args.command != "bb-email-verification":
         parser.error("--enable/--disable require bb-email-verification")
     if args.headed:
+        if args.command == 'icourse-login':
+            parser.error('icourse-login currently uses masked terminal input and background Chrome only')
         if not args.command.endswith("-login"):
             parser.error("--headed is only supported for login commands")
         import os
@@ -38,6 +76,13 @@ def main() -> None:
         from importlib import import_module
         adapter = args.command.removesuffix("-serve")
         import_module(f"school_mcp.{adapter}.server").run()
+    elif args.command == "icourse-login":
+        from .icourse.login import run
+        from .workflow_store import WorkflowError
+        try:
+            run()
+        except WorkflowError as exc:
+            parser.exit(1, str(exc) + "\n")
     elif args.command == "finance-login":
         from .finance.login import run
         from .finance.session import FinanceError

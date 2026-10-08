@@ -1,6 +1,6 @@
-# USTC 评课社区只读 MCP
+# USTC 评课社区 MCP
 
-独立服务名 `school-mcp-icourse`，CLI 集成入口 `icourse-serve`；Python 入口 `school_mcp.icourse.server.run()`。仅访问 `https://icourse.club` 的匿名公开页面，不读取或使用统一身份凭据、浏览器会话、个人 Cookie。无需社区账号即可查询公开课程与点评。
+独立服务名 `school-mcp-icourse`，CLI 集成入口 `icourse-serve`；Python 入口 `school_mcp.icourse.server.run()`。公开查询仍只匿名访问 `https://icourse.club`，无需账号。新增独立账号登录和新点评准备/发布/核验工具，共13个；发表使用本站加密会话，不读取学校统一身份凭据。详见[业务工作流](business-workflows.md)和[发布Skill](../.agents/skills/school-services/references/community-publishing.md)。以下原8个查询工具的边界保持不变。
 
 ## 工具
 
@@ -29,7 +29,7 @@
 
 ## 边界
 
-只发 GET，请求路径为内部白名单；不跟随重定向，不访问评论内链接。8 MiB 页面读取上限，网络、鉴权、限流、404、格式变化均报告错误。不登录、不注册、不发布评价或回复、不点赞、关注、推荐或私信。不下载需登录附件，不接入顶部链接的第三方导师评价站点。
+只发 GET，请求路径为内部白名单；不跟随重定向，不访问评论内链接。8 MiB 页面读取上限，网络、鉴权、限流、404、格式变化均报告错误。公开查询工具不登录或发布；独立发表工具仅按明确授权发布新点评，已有点评拒绝覆盖。不注册、回复、点赞、关注、推荐或私信。不下载需登录附件，不接入顶部链接的第三方导师评价站点。
 
 验证方式：`python -m unittest discover -s tests -p test_icourse.py -v`。合成测试覆盖分页、缺失评分、只读网络请求、输入验证、跳转/鉴权/内容异常、正文截断、公开回复和离线 status。真实访问验收记录保存在忽略目录 `.local/icourse-*`，不提交公开评论或用户数据作为测试夹具。
 
