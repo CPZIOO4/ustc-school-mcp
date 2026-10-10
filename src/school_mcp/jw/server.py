@@ -118,6 +118,10 @@ async def school_jw_course_schedule(query: str, semester_id: int = 0, week: int 
                                    include_bb, login_authorized, wait_seconds)
 
 
+from ..runtime_version import install as install_runtime_status
+install_runtime_status(mcp, 'jw')
+
+
 def run():
     logging.getLogger("httpx").setLevel(logging.WARNING)
     mcp.run(transport="stdio")

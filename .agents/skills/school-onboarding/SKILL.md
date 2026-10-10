@@ -5,6 +5,8 @@ description: 在用户已使用支持本地命令和 stdio MCP 的 AI 客户端�
 
 # 从下载到首次连接
 
+已安装后的源码更新、工具缺失或怀疑进程仍运行旧代码时，读取 [更新与运行版本核验](../../../docs/runtime-updates.md)。新进程的 `bootstrap.py verify` 不能证明客户端已重载；使用其目标指纹在客户端调用 `school_<站点>_runtime_status`，核对 `state=current`、`expected_matches=true`。不清除账号状态或按名称结束其他进程。
+
 先读项目根目录的 [AGENTS.md](../../../AGENTS.md) 和 [AI 部署步骤](../../../docs/ai-setup.md)。用户提供项目文件夹并要求部署时，直接完成可执行的本机安装、配置生成和隔离验证；到个人网页登录或本机凭据录入时再交接。
 
 ## 固定顺序

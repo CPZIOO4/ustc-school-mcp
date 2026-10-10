@@ -120,5 +120,9 @@ from ..connection_flow import install as install_connection_flow
 install_connection_flow(mcp, 'bb')
 
 
+from ..runtime_version import install as install_runtime_status
+install_runtime_status(mcp, 'bb')
+
+
 def run() -> None:
     mcp.run(transport="stdio")

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from school_mcp.runtime_version import MONITOR
 
 EXTRA_MAIL_TOOLS = {
     'school_mail_bind_status',
@@ -41,6 +42,15 @@ def check_minimal_defaults(tools):
 
 
 async def check_recovery_tools(session, tools):
+    runtime_tools = [tool for tool in tools.tools if tool.name.endswith('_runtime_status')]
+    assert len(runtime_tools) == 1
+    tool = runtime_tools[0]
+    assert tool.annotations.readOnlyHint and not tool.annotations.openWorldHint
+    assert tool.outputSchema is not None
+    result = await session.call_tool(tool.name, {'expected_fingerprint': MONITOR.report()['disk_fingerprint']})
+    assert not result.isError and result.structuredContent['state'] == 'current'
+    assert result.structuredContent['expected_matches'] is True
+    assert result.structuredContent['network_checked'] is False
     for tool in tools.tools:
         if tool.name.endswith('_query'):
             assert tool.inputSchema['properties']['login_authorized']['default'] is False
@@ -65,7 +75,7 @@ async def main() -> None:
                 tools = await session.list_tools()
                 check_minimal_defaults(tools)
                 await check_recovery_tools(session, tools)
-                names = {tool.name for tool in tools.tools}
+                names = {tool.name for tool in tools.tools if not tool.name.endswith('_runtime_status')}
                 assert names == EXTRA_MAIL_TOOLS | {"school_mail_status", "school_mail_setup_guide", "school_mail_check_connection", "school_mail_list_folders", "school_mail_search", "school_mail_read", "school_mail_download_attachment", "school_mail_prepare", "school_mail_prepare_reply", "school_mail_send", "school_mail_send_status", "school_mail_find_replies", "school_mail_check_sent_copy", "school_mail_save_sent_copy", "school_mail_list_drafts", "school_mail_update_draft", "school_mail_cancel_draft"}, names
                 status = await session.call_tool("school_mail_status", {})
                 assert status.isError is False, status
@@ -128,7 +138,7 @@ async def main() -> None:
                 tools = await session.list_tools()
                 check_minimal_defaults(tools)
                 await check_recovery_tools(session, tools)
-                names = {tool.name for tool in tools.tools}
+                names = {tool.name for tool in tools.tools if not tool.name.endswith('_runtime_status')}
                 assert names == {"school_bb_query", "school_bb_schedule_submission", "school_bb_prepare_named_submission", "school_bb_script_status", "school_bb_cancel_script", "school_bb_status", "school_bb_check_connection", "school_bb_list_courses", "school_bb_read_course", "school_bb_read_page", "school_bb_course_announcements", "school_bb_auth_status", "school_bb_reconnect", "school_bb_list_assignments", "school_bb_prepare_assignment_files", "school_bb_inspect_assignment", "school_bb_prepare_submission", "school_bb_submit_assignment", "school_bb_submission_status"}, names
                 status = await session.call_tool("school_bb_status", {})
                 assert status.isError is False and status.structuredContent["configured"] is False
@@ -145,7 +155,7 @@ async def main() -> None:
                 tools = await session.list_tools()
                 check_minimal_defaults(tools)
                 await check_recovery_tools(session, tools)
-                names = {tool.name for tool in tools.tools}
+                names = {tool.name for tool in tools.tools if not tool.name.endswith('_runtime_status')}
                 assert names == {"school_jw_query", "school_jw_course_schedule", "school_jw_build_timetable", "school_jw_schedule_enrollment_watch", "school_jw_script_status", "school_jw_cancel_script", "school_jw_search_offerings", "school_jw_planning_context", "school_jw_plan_timetables", "school_jw_enrollment_window", "school_jw_prepare_course_change", "school_jw_status", "school_jw_reconnect", "school_jw_check_connection", "school_jw_read_home", "school_jw_list_modules", "school_jw_list_semesters", "school_jw_list_courses", "school_jw_timetable", "school_jw_grades"}, names
                 status = await session.call_tool("school_jw_status", {})
                 assert status.isError is False and status.structuredContent["configured"] is False
@@ -163,7 +173,7 @@ async def main() -> None:
                 tools = await session.list_tools()
                 check_minimal_defaults(tools)
                 await check_recovery_tools(session, tools)
-                names = {tool.name for tool in tools.tools}
+                names = {tool.name for tool in tools.tools if not tool.name.endswith('_runtime_status')}
                 assert names == {"school_library_query", "school_library_status", "school_library_reconnect", "school_library_check_connection", "school_library_summary", "school_library_list_loans", "school_library_loan_history", "school_library_list_services"}, names
                 status = await session.call_tool("school_library_status", {})
                 assert status.isError is False and status.structuredContent["configured"] is False
@@ -182,7 +192,7 @@ async def main() -> None:
                     tools = await session.list_tools()
                     check_minimal_defaults(tools)
                     await check_recovery_tools(session, tools)
-                    names = {tool.name for tool in tools.tools}
+                    names = {tool.name for tool in tools.tools if not tool.name.endswith('_runtime_status')}
                     status_name = f"school_{adapter}_status"
                     assert status_name in names and len(names) >= 2, names
                     assert all(name.startswith(f"school_{adapter}_") for name in names), names

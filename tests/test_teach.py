@@ -110,7 +110,7 @@ class TeachRequestTests(unittest.TestCase):
         with patch("httpx.Client", side_effect=AssertionError("network")):
             self.assertFalse(school_teach_status()["network_checked"])
         tools = asyncio.run(mcp.list_tools())
-        self.assertEqual(len(tools), 6)
+        self.assertEqual(len(tools), 7)
         for tool in tools:
             self.assertTrue(tool.annotations.readOnlyHint)
             self.assertIsNotNone(tool.outputSchema)

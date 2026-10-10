@@ -96,6 +96,10 @@ def school_icourse_review_status(plan_id: str, verify: bool = False) -> dict[str
     return ReviewPublisher().status(plan_id,verify)
 
 
+from ..runtime_version import install as install_runtime_status
+install_runtime_status(mcp, 'icourse')
+
+
 def run():
     logging.getLogger("httpx").setLevel(logging.WARNING)
     mcp.run(transport="stdio")

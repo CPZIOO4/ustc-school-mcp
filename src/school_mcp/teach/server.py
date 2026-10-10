@@ -50,6 +50,10 @@ def school_teach_read_article(url: str) -> dict[str, Any]:
     return TeachClient().read_article(url)
 
 
+from ..runtime_version import install as install_runtime_status
+install_runtime_status(mcp, 'teach')
+
+
 def run():
     logging.getLogger("httpx").setLevel(logging.WARNING)
     mcp.run(transport="stdio")

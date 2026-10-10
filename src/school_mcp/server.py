@@ -257,5 +257,9 @@ from .script_tools import install as install_script_tools
 install_script_tools(mcp, 'mail')
 
 
+from .runtime_version import install as install_runtime_status
+install_runtime_status(mcp, 'mail')
+
+
 def run() -> None:
     mcp.run(transport="stdio")

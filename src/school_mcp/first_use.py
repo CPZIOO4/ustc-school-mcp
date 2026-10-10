@@ -10,6 +10,7 @@ import tempfile
 from .diagnostics import SERVICES, diagnose
 from .mail.config import local_dir
 from .mail.onboarding import local_status
+from .runtime_version import MONITOR
 
 SESSIONS = {s: f'{s}.session.dpapi' for s in ('bb', 'jw', 'library')} | {
     s: f'{s}-session.dpapi' for s in ('nan7', 'icourse', 'young', 'finance')}
@@ -48,7 +49,7 @@ def local_report(services: list[str]) -> dict:
             'note': '本地存在性不是连接成功。邮箱客户端密码不等于统一身份密码；启用邮件验证码回退需用户授权。'}
 
 
-async def protocol_check(services: list[str]) -> list[dict]:
+async def protocol_check(services: list[str], expected_fingerprint: str) -> list[dict]:
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
     result = []
@@ -66,13 +67,19 @@ async def protocol_check(services: list[str]) -> list[dict]:
                             await session.initialize()
                             tools = await session.list_tools()
                             names = {t.name for t in tools.tools}
-                            expected = {f'school_{service}_status', f'school_{service}_check_connection'}
+                            runtime_tool = f'school_{service}_runtime_status'
+                            expected = {f'school_{service}_status', f'school_{service}_check_connection', runtime_tool}
                             if not expected <= names:
                                 raise RuntimeError('Missing required tool')
                             status = await session.call_tool(f'school_{service}_status', {})
                             if status.isError:
                                 raise RuntimeError('Status tool failed')
-                            return {'service': service, 'ready': True, 'tool_count': len(names)}
+                            runtime = await session.call_tool(runtime_tool, {'expected_fingerprint': expected_fingerprint})
+                            evidence = runtime.structuredContent or {}
+                            ready = not runtime.isError and evidence.get('state') == 'current' and evidence.get('expected_matches') is True
+                            return {'service': service, 'ready': ready, 'tool_count': len(names),
+                                    'state': 'ready' if ready else 'runtime_version_mismatch',
+                                    'runtime': evidence}
                 try:
                     result.append(await asyncio.wait_for(check(), timeout=12))
                 except Exception:
@@ -82,7 +89,8 @@ async def protocol_check(services: list[str]) -> list[dict]:
 
 
 def runtime_check(services: list[str]) -> dict:
-    checks = asyncio.run(protocol_check(services))
+    expected = MONITOR.report()['disk_fingerprint']
+    checks = asyncio.run(protocol_check(services, expected)) if expected else []
     chrome = {'ready': False, 'headless': True, 'network_checked': False}
     try:
         from playwright.sync_api import sync_playwright
@@ -93,7 +101,13 @@ def runtime_check(services: list[str]) -> dict:
             chrome['ready'] = True
     except Exception:
         chrome.update(state='chrome_unavailable', action='安装本机 Google Chrome 后重试；无需浏览器控制扩展。')
-    return {'ready': all(c['ready'] for c in checks) and chrome['ready'], 'stdio': checks, 'chrome': chrome,
+    evidence = MONITOR.report(expected)
+    return {'ready': bool(checks) and all(c['ready'] for c in checks) and chrome['ready']
+                    and evidence['state'] == 'current', 'stdio': checks, 'chrome': chrome, 'version_check': evidence,
+            'client_verification': {'required': True, 'expected_fingerprint': expected,
+                                    'tools': [f'school_{s}_runtime_status' for s in services],
+                                    'success_conditions': ['state=current', 'expected_matches=true'],
+                                    'action': '按当前 AI 客户端支持的方式重载这些 MCP 后，在客户端逐一调用上述工具并传入 expected_fingerprint；工具不存在表示仍是旧版。'},
             'isolated_private_directory': True, 'network_checked': False,
             'note': '这是协议和环境测试，不证明当前 AI 客户端已加载配置或学校账号已连接。'}
 
