@@ -33,6 +33,7 @@ description: 使用本项目的学校 MCP 收发与回复邮件、查询中科�
 
 | 任务 | 标准流程 |
 | --- | --- |
+| 找回上次任务、重载后继续、核实中断是否已经提交 | [任务状态与恢复](references/task-recovery.md)，四类业务复用原记录，先核验再继续 |
 | 查某课授课/实验时间、合并课表与 BB 公告、查询中恢复登录 | [课程安排与登录恢复](references/course-schedule-recovery.md)，优先固定工具，按返回状态继续 |
 | 盘点能用什么、核实已实现能力 | [业务目录与证据](references/business-catalog.md) |
 | 收信、草稿查找/修改/作废、发送、回复、附件验收及已发送副本 | [邮件固定流程](references/mail-workflows.md)，发送和副本保存依据用户授权 |
@@ -45,7 +46,7 @@ description: 使用本项目的学校 MCP 收发与回复邮件、查询中科�
 | 了解第二课堂报名、作品上传与提交路径及实现边界 | [报名与作品提交路线](references/young-registration-submission.md)，普通单次线下定时报名已有工具，真实提交待指定项目开放后验收 |
 | BB 课程、图书馆及邮件和通知辅助查询 | [课程与图书馆流程](references/course-library-workflows.md) |
 | BB 作业查找、历史尝试查看、材料准备及授权重交流程 | [BB 作业流程](references/bb-assignment-workflows.md)，标准个人作业准备、提交、结果核验已有工具，按明确授权执行 |
-| 财务处官网、统一认证及智能报销入口 | [财务接入流程](references/finance-workflows.md)，登录与账号业务目录已验证，实际报销表单尚未逐项适配 |
+| 财务处官网、统一认证、智能报销入口及材料预检 | [财务接入与预检流程](references/finance-workflows.md)，材料预检无需登录，实际报销表单尚未逐项适配 |
 
 浏览器可达不等于 MCP 已适配。优先使用现有工具；未适配的业务仅在用户要求预览时，以后台 Playwright + Chrome、独立 context 复用该站点已有会话。入口从实时菜单获取，不猜课程 ID、账号标识或深层操作 URL。不要为了绕过工具拒绝而放宽路径白名单。
 

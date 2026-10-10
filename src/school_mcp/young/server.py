@@ -93,6 +93,9 @@ install_connection_flow(mcp, 'young')
 from ..runtime_version import install as install_runtime_status
 install_runtime_status(mcp, 'young')
 
+from ..task_recovery import install as install_task_recovery
+install_task_recovery(mcp, 'young')
+
 
 def run():
     mcp.run(transport="stdio")

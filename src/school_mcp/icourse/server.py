@@ -99,6 +99,9 @@ def school_icourse_review_status(plan_id: str, verify: bool = False) -> dict[str
 from ..runtime_version import install as install_runtime_status
 install_runtime_status(mcp, 'icourse')
 
+from ..task_recovery import install as install_task_recovery
+install_task_recovery(mcp, 'icourse')
+
 
 def run():
     logging.getLogger("httpx").setLevel(logging.WARNING)
