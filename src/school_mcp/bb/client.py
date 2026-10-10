@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urljoin, urlsplit
 import httpx
 
 from ..network import http_client
+from ..service_errors import identity_redirect
 
 from .parsing import course_links, login_page, page_data, safe_url
 from .session import BASE_URL, BB_HOSTS, PORTAL_PATH, BBError, load_session
@@ -64,13 +65,17 @@ class BBClient:
                     if response.is_redirect:
                         destination = urljoin(str(response.url), response.headers.get("location", ""))
                         target = urlsplit(destination)
+                        if identity_redirect(destination) or (target.scheme == 'https' and target.hostname in BB_HOSTS and target.port in (None, 443) and not target.username and not target.password and target.path.startswith(('/webapps/login', '/nginx_auth'))):
+                            raise BBError('BB 登录会话已失效，需要认证。', code='authentication_required')
                         if target.hostname not in BB_HOSTS or target.path.startswith(("/webapps/login", "/nginx_auth")):
                             raise BBError("BB 登录会话已失效，请调用 school_bb_reconnect 后查看登录状态，再重试当前查询。")
                         url = safe_url(destination)
                         validate_read_url(url)
                         continue
-                    if response.status_code in {401, 403} or login_page(response.text, str(response.url)):
-                        raise BBError("BB 登录会话已失效或没有访问权限，请调用 school_bb_reconnect 后查看登录状态，再重试当前查询。")
+                    if response.status_code == 403:
+                        raise BBError('BB 拒绝访问。', code='access_denied')
+                    if response.status_code == 401 or (response.status_code == 200 and login_page(response.text, str(response.url))):
+                        raise BBError('BB 登录会话已失效，需要认证。', code='authentication_required')
                     response.raise_for_status()
                     if "text/html" not in response.headers.get("content-type", "").lower():
                         raise BBError("返回内容不是 BB 页面。")

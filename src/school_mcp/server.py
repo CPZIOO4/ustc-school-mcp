@@ -35,6 +35,13 @@ def school_mail_setup_guide() -> dict[str, Any]:
 
 
 @mcp.tool(annotations=READ_ONLY)
+def school_mail_bind_status() -> dict[str, Any]:
+    """查询本机浏览器绑定进度，不返回密码、不联网。captured 用 mail-bind --resume；creation_attempted 不能重新生成。"""
+    from .mail.browser_setup import status
+    return status()
+
+
+@mcp.tool(annotations=READ_ONLY)
 def school_mail_check_connection() -> dict[str, Any]:
     """验证邮箱登录并返回收件箱邮件总数和未读数。"""
     return _client().check()

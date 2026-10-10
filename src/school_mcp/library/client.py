@@ -6,6 +6,7 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 
 from ..network import http_client
+from ..service_errors import identity_redirect
 from bs4 import BeautifulSoup
 
 from .parsing import book_records, services, summary
@@ -39,16 +40,20 @@ class LibraryClient:
                     if response.is_redirect:
                         target = urlsplit(urljoin(str(response.url), response.headers.get("location", "")))
                         origin = f"{target.scheme}://{target.hostname}"
+                        if identity_redirect(target.geturl()) or (origin in BASE_URLS and target.port in (None, 80 if target.scheme == 'http' else 443) and not target.username and not target.password and target.path in {'/reader/login.php', '/reader/login-cas.php'}):
+                            raise LibraryError('图书馆需要认证。', code='authentication_required')
                         if origin not in BASE_URLS or target.port not in (None, 80 if target.scheme == "http" else 443) or target.username or target.password or target.path not in READ_PATHS or target.query or target.fragment:
                             raise LibraryError("个人图书馆登录已失效或跳转超出读取范围，请调用 school_library_reconnect 后查看登录状态，再重试当前查询。")
                         url = origin + target.path
                         continue
                     if response.status_code in {401, 403}:
-                        raise LibraryError("个人图书馆会话失效或没有访问权限，请调用 school_library_reconnect 后查看登录状态，再重试当前查询。")
+                        raise LibraryError("个人图书馆会话失效或没有访问权限。", code='authentication_required' if response.status_code == 401 else 'access_denied')
                     response.raise_for_status()
                     if len(response.content) > 5 * 1024 * 1024 or "text/html" not in response.headers.get("content-type", "").lower():
                         raise LibraryError("图书馆页面类型或大小超出读取范围。")
                     soup = BeautifulSoup(response.text, "html.parser")
+                    if soup.select_one('input[type="password"], form[action*="login"]'):
+                        raise LibraryError('图书馆需要认证。', code='authentication_required')
                     if soup.select_one('a[href*="logout.php"]') is None:
                         raise LibraryError("没有取得已登录的个人图书馆页面，请调用 school_library_reconnect 后查看登录状态，再重试当前查询。")
                     return response

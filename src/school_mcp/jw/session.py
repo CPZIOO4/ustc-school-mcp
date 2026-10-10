@@ -10,7 +10,10 @@ BASE_URL = "https://jw.ustc.edu.cn"
 HOST = "jw.ustc.edu.cn"
 
 
-class JWError(Exception):
+from ..service_errors import ServiceError
+
+
+class JWError(ServiceError):
     """A message safe to return to the MCP client."""
 
 
@@ -41,4 +44,4 @@ def load_session() -> dict:
         data["cookies"] = jw_cookies(data["cookies"])
         return data
     except (MailError, OSError, ValueError, TypeError, KeyError):
-        raise JWError("教务系统尚未登录或会话无法读取，请调用 school_jw_reconnect。") from None
+        raise JWError("教务系统尚未登录或会话无法读取，请调用 school_jw_reconnect。", code='authentication_required') from None

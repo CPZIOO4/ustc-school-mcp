@@ -12,6 +12,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 EXTRA_MAIL_TOOLS = {
+    'school_mail_bind_status',
     'school_mail_schedule_workflow', 'school_mail_script_status', 'school_mail_cancel_script',
     'school_mail_prepare_forward', 'school_mail_prepare_reply_all', 'school_mail_create_folder',
     'school_mail_prepare_actions', 'school_mail_execute_actions', 'school_mail_action_status',
@@ -19,7 +20,7 @@ EXTRA_MAIL_TOOLS = {
     'school_mail_save_classification_rules', 'school_mail_preview_classification',
     'school_mail_prepare_classification', 'school_mail_read_thread',
 }
-EXTRA_MAIL_WRITES = EXTRA_MAIL_TOOLS - {'school_mail_script_status', 'school_mail_action_status', 'school_mail_get_classification_rules', 'school_mail_read_thread'}
+EXTRA_MAIL_WRITES = EXTRA_MAIL_TOOLS - {'school_mail_bind_status', 'school_mail_script_status', 'school_mail_action_status', 'school_mail_get_classification_rules', 'school_mail_read_thread'}
 
 
 def check_minimal_defaults(tools):
@@ -39,6 +40,21 @@ def check_minimal_defaults(tools):
             assert tool.inputSchema["properties"][key]["default"] == default, (tool.name, key)
 
 
+async def check_recovery_tools(session, tools):
+    for tool in tools.tools:
+        if tool.name.endswith('_query'):
+            assert tool.inputSchema['properties']['login_authorized']['default'] is False
+            assert tool.inputSchema['properties']['operation']['enum']
+            result = await session.call_tool(tool.name, {'operation': 'check'})
+            assert not result.isError, result
+            assert result.structuredContent['state'] == 'authentication_required', result
+        if tool.name == 'school_jw_course_schedule':
+            result = await session.call_tool(tool.name, {'query': '测试课程'})
+            assert not result.isError, result
+            assert result.structuredContent['state'] == 'insufficient_evidence'
+            assert result.structuredContent['sources']['jw_courses']['state'] == 'authentication_required'
+
+
 async def main() -> None:
     with tempfile.TemporaryDirectory() as directory:
         env = {**os.environ, "SCHOOL_MCP_LOCAL_DIR": directory, "SCHOOL_MAIL_PASSWORD": "", "PYTHONUTF8": "1"}
@@ -48,6 +64,7 @@ async def main() -> None:
                 initialized = await session.initialize()
                 tools = await session.list_tools()
                 check_minimal_defaults(tools)
+                await check_recovery_tools(session, tools)
                 names = {tool.name for tool in tools.tools}
                 assert names == EXTRA_MAIL_TOOLS | {"school_mail_status", "school_mail_setup_guide", "school_mail_check_connection", "school_mail_list_folders", "school_mail_search", "school_mail_read", "school_mail_download_attachment", "school_mail_prepare", "school_mail_prepare_reply", "school_mail_send", "school_mail_send_status", "school_mail_find_replies", "school_mail_check_sent_copy", "school_mail_save_sent_copy", "school_mail_list_drafts", "school_mail_update_draft", "school_mail_cancel_draft"}, names
                 status = await session.call_tool("school_mail_status", {})
@@ -110,13 +127,14 @@ async def main() -> None:
                 initialized = await session.initialize()
                 tools = await session.list_tools()
                 check_minimal_defaults(tools)
+                await check_recovery_tools(session, tools)
                 names = {tool.name for tool in tools.tools}
-                assert names == {"school_bb_schedule_submission", "school_bb_prepare_named_submission", "school_bb_script_status", "school_bb_cancel_script", "school_bb_status", "school_bb_check_connection", "school_bb_list_courses", "school_bb_read_course", "school_bb_read_page", "school_bb_course_announcements", "school_bb_auth_status", "school_bb_reconnect", "school_bb_list_assignments", "school_bb_prepare_assignment_files", "school_bb_inspect_assignment", "school_bb_prepare_submission", "school_bb_submit_assignment", "school_bb_submission_status"}, names
+                assert names == {"school_bb_query", "school_bb_schedule_submission", "school_bb_prepare_named_submission", "school_bb_script_status", "school_bb_cancel_script", "school_bb_status", "school_bb_check_connection", "school_bb_list_courses", "school_bb_read_course", "school_bb_read_page", "school_bb_course_announcements", "school_bb_auth_status", "school_bb_reconnect", "school_bb_list_assignments", "school_bb_prepare_assignment_files", "school_bb_inspect_assignment", "school_bb_prepare_submission", "school_bb_submit_assignment", "school_bb_submission_status"}, names
                 status = await session.call_tool("school_bb_status", {})
                 assert status.isError is False and status.structuredContent["configured"] is False
                 missing = await session.call_tool("school_bb_list_courses", {})
                 assert missing.isError is True
-                assert all(tool.annotations.readOnlyHint is (tool.name not in {"school_bb_schedule_submission", "school_bb_prepare_named_submission", "school_bb_cancel_script", "school_bb_reconnect", "school_bb_prepare_assignment_files", "school_bb_prepare_submission", "school_bb_submit_assignment", "school_bb_submission_status"}) for tool in tools.tools)
+                assert all(tool.annotations.readOnlyHint is (tool.name not in {"school_bb_query", "school_bb_schedule_submission", "school_bb_prepare_named_submission", "school_bb_cancel_script", "school_bb_reconnect", "school_bb_prepare_assignment_files", "school_bb_prepare_submission", "school_bb_submit_assignment", "school_bb_submission_status"}) for tool in tools.tools)
                 auth = await session.call_tool("school_bb_auth_status", {})
                 assert auth.isError is False and auth.structuredContent["credentials_saved"] is False
                 print(json.dumps({"server": initialized.serverInfo.name, "tools": sorted(names), "unconfigured_status": "handled"}, ensure_ascii=False))
@@ -126,14 +144,15 @@ async def main() -> None:
                 initialized = await session.initialize()
                 tools = await session.list_tools()
                 check_minimal_defaults(tools)
+                await check_recovery_tools(session, tools)
                 names = {tool.name for tool in tools.tools}
-                assert names == {"school_jw_build_timetable", "school_jw_schedule_enrollment_watch", "school_jw_script_status", "school_jw_cancel_script", "school_jw_search_offerings", "school_jw_planning_context", "school_jw_plan_timetables", "school_jw_enrollment_window", "school_jw_prepare_course_change", "school_jw_status", "school_jw_reconnect", "school_jw_check_connection", "school_jw_read_home", "school_jw_list_modules", "school_jw_list_semesters", "school_jw_list_courses", "school_jw_timetable", "school_jw_grades"}, names
+                assert names == {"school_jw_query", "school_jw_course_schedule", "school_jw_build_timetable", "school_jw_schedule_enrollment_watch", "school_jw_script_status", "school_jw_cancel_script", "school_jw_search_offerings", "school_jw_planning_context", "school_jw_plan_timetables", "school_jw_enrollment_window", "school_jw_prepare_course_change", "school_jw_status", "school_jw_reconnect", "school_jw_check_connection", "school_jw_read_home", "school_jw_list_modules", "school_jw_list_semesters", "school_jw_list_courses", "school_jw_timetable", "school_jw_grades"}, names
                 status = await session.call_tool("school_jw_status", {})
                 assert status.isError is False and status.structuredContent["configured"] is False
                 assert status.structuredContent["credentials_saved"] is False
                 missing = await session.call_tool("school_jw_list_courses", {})
                 assert missing.isError is True
-                assert all(tool.annotations.readOnlyHint is (tool.name not in {"school_jw_reconnect", "school_jw_schedule_enrollment_watch", "school_jw_cancel_script"}) for tool in tools.tools)
+                assert all(tool.annotations.readOnlyHint is (tool.name not in {"school_jw_query", "school_jw_course_schedule", "school_jw_reconnect", "school_jw_schedule_enrollment_watch", "school_jw_cancel_script"}) for tool in tools.tools)
                 print(json.dumps({"server": initialized.serverInfo.name, "tools": sorted(names), "unconfigured_status": "handled"}, ensure_ascii=False))
 
 
@@ -143,14 +162,15 @@ async def main() -> None:
                 initialized = await session.initialize()
                 tools = await session.list_tools()
                 check_minimal_defaults(tools)
+                await check_recovery_tools(session, tools)
                 names = {tool.name for tool in tools.tools}
-                assert names == {"school_library_status", "school_library_reconnect", "school_library_check_connection", "school_library_summary", "school_library_list_loans", "school_library_loan_history", "school_library_list_services"}, names
+                assert names == {"school_library_query", "school_library_status", "school_library_reconnect", "school_library_check_connection", "school_library_summary", "school_library_list_loans", "school_library_loan_history", "school_library_list_services"}, names
                 status = await session.call_tool("school_library_status", {})
                 assert status.isError is False and status.structuredContent["configured"] is False
                 assert status.structuredContent["credentials_saved"] is False
                 missing = await session.call_tool("school_library_list_loans", {})
                 assert missing.isError is True
-                assert all(tool.annotations.readOnlyHint is (tool.name != "school_library_reconnect") for tool in tools.tools)
+                assert all(tool.annotations.readOnlyHint is (tool.name not in {"school_library_reconnect", "school_library_query"}) for tool in tools.tools)
                 print(json.dumps({"server": initialized.serverInfo.name, "tools": sorted(names), "unconfigured_status": "handled"}, ensure_ascii=False))
 
 
@@ -161,21 +181,22 @@ async def main() -> None:
                     initialized = await session.initialize()
                     tools = await session.list_tools()
                     check_minimal_defaults(tools)
+                    await check_recovery_tools(session, tools)
                     names = {tool.name for tool in tools.tools}
                     status_name = f"school_{adapter}_status"
                     assert status_name in names and len(names) >= 2, names
                     assert all(name.startswith(f"school_{adapter}_") for name in names), names
-                    assert all(tool.annotations and tool.annotations.readOnlyHint is (tool.name not in {f"school_{adapter}_reconnect", "school_nan7_prepare_offer", "school_nan7_publish_offer", "school_icourse_prepare_review", "school_icourse_publish_review", "school_young_schedule_registration", "school_young_run_registration", "school_young_cancel_registration_task", "school_young_cancel_schedule"}) for tool in tools.tools)
+                    assert all(tool.annotations and tool.annotations.readOnlyHint is (tool.name not in {f"school_{adapter}_query", f"school_{adapter}_reconnect", "school_nan7_prepare_offer", "school_nan7_publish_offer", "school_icourse_prepare_review", "school_icourse_publish_review", "school_young_schedule_registration", "school_young_run_registration", "school_young_cancel_registration_task", "school_young_cancel_schedule"}) for tool in tools.tools)
                     assert all(tool.outputSchema is not None for tool in tools.tools)
                     status = await session.call_tool(status_name, {})
                     assert status.isError is False and isinstance(status.structuredContent, dict)
                     if adapter == "young":
-                        assert names == {"school_young_status", "school_young_reconnect", "school_young_check_connection", "school_young_read_home", "school_young_find_projects", "school_young_schedule_registration", "school_young_run_registration", "school_young_registration_status", "school_young_cancel_registration_task", "school_young_schedule_status", "school_young_cancel_schedule"}
+                        assert names == {"school_young_query", "school_young_status", "school_young_reconnect", "school_young_check_connection", "school_young_read_home", "school_young_find_projects", "school_young_schedule_registration", "school_young_run_registration", "school_young_registration_status", "school_young_cancel_registration_task", "school_young_schedule_status", "school_young_cancel_schedule"}
                         assert status.structuredContent["configured"] is False
                         missing = await session.call_tool("school_young_read_home", {})
                         assert missing.isError is True
                     if adapter == 'finance':
-                        assert names == {'school_finance_entry_points', 'school_finance_status', 'school_finance_reconnect',
+                        assert names == {'school_finance_query', 'school_finance_entry_points', 'school_finance_status', 'school_finance_reconnect',
                                          'school_finance_check_connection', 'school_finance_list_services', 'school_finance_inspect_smart', 'school_finance_workflow_guide'}
                         assert status.structuredContent['configured'] is False
                         entry = await session.call_tool('school_finance_entry_points', {})

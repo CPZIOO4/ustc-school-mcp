@@ -20,6 +20,7 @@ CANARIES += ('nested/bb-submissions.sqlite3', 'nested/bb-submissions.sqlite3-wal
 CANARIES += ('nested/young-registrations.sqlite3', 'nested/young-registrations.sqlite3-wal')
 CANARIES += ('nested/business-plans.sqlite3', 'nested/business-plans.sqlite3-wal', 'nested/icourse-session.dpapi')
 CANARIES += ('nested/register-young-target.py', '.local/register-young-target.py', 'nested/script-jobs.sqlite3', 'nested/script-jobs.sqlite3-wal', 'nested/script-jobs.sqlite3-journal')
+CANARIES += ('.local/mail-browser-setup.dpapi', 'nested/mail-browser-setup.dpapi.tmp')
 
 
 def git(*args: str, data: bytes | None = None) -> bytes:

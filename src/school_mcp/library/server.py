@@ -55,6 +55,10 @@ def school_library_list_services() -> dict[str, Any]:
     return list_services()
 
 
+from ..connection_flow import install as install_connection_flow
+install_connection_flow(mcp, 'library')
+
+
 def run():
     logging.getLogger("httpx").setLevel(logging.WARNING)
     mcp.run(transport="stdio")

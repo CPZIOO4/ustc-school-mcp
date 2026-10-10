@@ -11,7 +11,10 @@ PORTAL_PATH = "/webapps/portal/execute/tabs/tabAction?tab_tab_group_id=_1_1"
 BB_HOSTS = {"www.bb.ustc.edu.cn", "bb.ustc.edu.cn"}
 
 
-class BBError(Exception):
+from ..service_errors import ServiceError
+
+
+class BBError(ServiceError):
     """An error safe to show to the MCP client."""
 
 
@@ -47,4 +50,4 @@ def load_session() -> dict:
             raise ValueError("invalid session")
         return data
     except (MailError, OSError, ValueError, KeyError, TypeError):
-        raise BBError("BB 尚未登录或本地会话无法读取，请运行 BB 本地登录窗口。") from None
+        raise BBError("BB 尚未登录或本地会话无法读取，请运行 BB 本地登录窗口。", code='authentication_required') from None

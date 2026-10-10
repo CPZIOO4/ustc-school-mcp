@@ -86,5 +86,9 @@ async def school_young_cancel_registration_task(job_id: str) -> dict[str, Any]:
     return await asyncio.to_thread(registration.cancel_job, job_id)
 
 
+from ..connection_flow import install as install_connection_flow
+install_connection_flow(mcp, 'young')
+
+
 def run():
     mcp.run(transport="stdio")

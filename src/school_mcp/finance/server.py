@@ -42,7 +42,7 @@ def school_finance_list_services() -> dict[str, Any]:
 
 @mcp.tool(annotations=READ)
 async def school_finance_inspect_smart() -> dict[str, Any]:
-    """后台进入实际智能报销入口，核验登录与可见模块文字。只放行已核实的初始化读取，其他请求拦截；catalog_complete=false表示菜单尚未完整加载，不代表没有报销单。不创建或提交业务。"""
+    """后台核验智能报销登录，读取当前账号首页的业务入口目录及分类。catalog_complete只表示本次目录查询完整；page_initialization_complete与办理权限另行标记。只返回名称、分类、入口标识及指南类型，不查询个人单据，不执行首页不透明过程或创建/提交业务。"""
     return await asyncio.to_thread(lambda: FinanceClient().inspect_smart())
 
 
@@ -50,6 +50,10 @@ async def school_finance_inspect_smart() -> dict[str, Any]:
 def school_finance_workflow_guide(business_type: str = 'overview') -> dict[str, Any]:
     """返回官方2025年4月指南中的业务分类、填单路线、需补齐的信息和来源页码。支持overview/daily/travel/loan/remuneration/internal_transfer。不联网，不代表实时表单或个人业务权限；不创建、保存或提交报销。"""
     return workflow_guide(business_type)
+
+
+from ..connection_flow import install as install_connection_flow
+install_connection_flow(mcp, 'finance')
 
 
 def run():

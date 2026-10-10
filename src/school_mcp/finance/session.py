@@ -10,7 +10,10 @@ PUBLIC_HOME = 'https://finance.ustc.edu.cn/'
 GUIDE = 'https://finance.ustc.edu.cn/2025/0403/c21813a679402/page.psp'
 
 
-class FinanceError(Exception):
+from ..service_errors import ServiceError
+
+
+class FinanceError(ServiceError):
     """Sanitized financial connector error."""
 
 
@@ -32,4 +35,4 @@ def load_session():
         value['state'] = own_state(value['state'])
         return value
     except (BBError, ValueError, TypeError, KeyError):
-        raise FinanceError('财务会话未保存、无法读取或账号已改变，请调用 school_finance_reconnect。') from None
+        raise FinanceError('财务会话未保存、无法读取或账号已改变，请调用 school_finance_reconnect。', code='authentication_required') from None

@@ -103,6 +103,21 @@ from ..script_tools import install as install_script_tools
 install_script_tools(mcp, 'jw')
 
 
+from ..connection_flow import install as install_connection_flow
+install_connection_flow(mcp, 'jw')
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True))
+async def school_jw_course_schedule(query: str, semester_id: int = 0, week: int = 0, weekday: int = 0,
+                                    focus: str = 'all', lesson_id: int = 0, include_bb: bool = True,
+                                    login_authorized: bool = False, wait_seconds: int = 20) -> dict[str, Any]:
+    """按名称/课程代码确定唯一已选课堂，再查该课堂教务课表和同学期同班 BB 公告。不查邮件。semester_id=0当前学期；week=0全部周次；weekday=0全部或1–7；focus=experiment仅识别带实验/上机标识的排课。歧义时用返回的lesson_id重查。login_authorized须已有登录授权。state=confirmed仅确认所读教务排课，ambiguous须核对候选/公告，insufficient_evidence不能解释为无课。返回有限原文证据，不将发布时间/截止时间/相对日期当上课时间。"""
+    import asyncio
+    from .course_schedule import course_schedule
+    return await asyncio.to_thread(course_schedule, query, semester_id, week, weekday, focus, lesson_id,
+                                   include_bb, login_authorized, wait_seconds)
+
+
 def run():
     logging.getLogger("httpx").setLevel(logging.WARNING)
     mcp.run(transport="stdio")

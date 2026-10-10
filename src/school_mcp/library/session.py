@@ -11,7 +11,10 @@ HOST = "opac.lib.ustc.edu.cn"
 BASE_URLS = {"https://" + HOST, "http://" + HOST}
 
 
-class LibraryError(Exception):
+from ..service_errors import ServiceError
+
+
+class LibraryError(ServiceError):
     """A message safe to return to the MCP client."""
 
 
@@ -49,9 +52,9 @@ def load_session() -> dict:
         except BBError:
             account = None
         if account is not None and data.get("account") != account:
-            raise LibraryError("图书馆会话与当前统一身份账号不一致，请重新登录。")
+            raise LibraryError("图书馆会话与当前统一身份账号不一致，请重新登录。", code='authentication_required')
         return data
     except LibraryError:
         raise
     except (MailError, OSError, ValueError, TypeError, KeyError, AttributeError):
-        raise LibraryError("个人图书馆尚未登录或会话无法读取，请调用 school_library_reconnect。") from None
+        raise LibraryError("个人图书馆尚未登录或会话无法读取，请调用 school_library_reconnect。", code='authentication_required') from None

@@ -79,3 +79,31 @@ class FinanceTests(unittest.TestCase):
     def test_login_html_not_reported_as_connected(self):
         with self.assertRaises(FinanceError):
             FinanceClient({'state': {'cookies': []}}, httpx.MockTransport(lambda r: httpx.Response(200, text='<form>login</form>'))).check()
+
+    def test_hidden_password_dialog_does_not_expire_authenticated_portal(self):
+        html = PORTAL + '<div style="display:none"><input type="password" id="oldPwd"></div>'
+        client = FinanceClient({'state': {'cookies': []}}, httpx.MockTransport(lambda r: httpx.Response(200, text=html)))
+        self.assertTrue(client.check()['connected'])
+
+    def test_actual_login_form_still_requires_authentication(self):
+        client = FinanceClient({'state': {'cookies': []}}, httpx.MockTransport(
+            lambda r: httpx.Response(200, text='<form><input type="password"></form>')))
+        with self.assertRaises(FinanceError) as raised:
+            client.check()
+        self.assertEqual(raised.exception.code, 'authentication_required')
+
+    def test_driver_startup_exception_records_terminal_error_without_secrets(self):
+        from school_mcp.finance import login
+        with patch.object(login, 'load_credentials', return_value={'username': 'synthetic'}), \
+             patch.object(login, 'load_device_state', return_value=None), \
+             patch.object(login, 'load_session', side_effect=FinanceError('missing')), \
+             patch.object(login, 'sync_playwright') as runtime, patch.object(login, 'login_state') as progress, \
+             patch.object(login, 'try_submit_credentials') as submit:
+            runtime.return_value.__enter__.side_effect = Exception('synthetic-private-driver-data')
+            with self.assertRaises(FinanceError) as raised:
+                login.run()
+            self.assertEqual(raised.exception.code, 'runtime_failure')
+            self.assertEqual(progress.call_args.args[0], 'error')
+            self.assertEqual(progress.call_args.kwargs['reason'], 'runtime_failure')
+            self.assertNotIn('synthetic-private', str(raised.exception) + str(progress.call_args))
+            submit.assert_not_called()

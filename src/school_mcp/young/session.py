@@ -10,7 +10,10 @@ ORIGIN = "https://" + HOST
 HOME = ORIGIN + "/login/sc-wisdom-group-learning/dataAnalysis/visual"
 
 
-class YoungError(Exception):
+from ..service_errors import ServiceError
+
+
+class YoungError(ServiceError):
     """Credential-free user-facing error."""
 
 
@@ -28,10 +31,10 @@ def load_session() -> dict:
     try:
         data = _load("young-session.dpapi")
         if data.get("account") != load_credentials()["username"]:
-            raise YoungError("青春科大会话与当前统一身份账号不一致，请重新连接。")
+            raise YoungError("青春科大会话与当前统一身份账号不一致，请重新连接。", code='authentication_required')
         if not isinstance(data.get("state"), dict):
             raise ValueError()
         data["state"] = own_state(data["state"])
         return data
     except (BBError, ValueError, TypeError, KeyError):
-        raise YoungError("青春科大尚未登录或本地会话无法读取，请调用 school_young_reconnect。") from None
+        raise YoungError("青春科大尚未登录或本地会话无法读取，请调用 school_young_reconnect。", code='authentication_required') from None

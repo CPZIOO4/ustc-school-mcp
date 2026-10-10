@@ -14,6 +14,7 @@ from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 from .mail.config import local_dir
+from .service_errors import policy_error
 
 INTERVALS = {"mail": 0.5, "smtp": 2.0, "bb": 1.0, "jw": 1.0, "library": 1.0,
              "library-public": 1.0, "teach": 1.0, "nan7": 1.0, "icourse": 1.0,
@@ -157,15 +158,15 @@ def http_client(service: str, error_type, **kwargs):
         try:
             delay = limiter.failure(service)
         except PolicyError as exc:
-            raise error_type(str(exc)) from None
-        raise error_type(str(CooldownError(delay))) from None
+            raise policy_error(error_type, exc) from None
+        raise policy_error(error_type, CooldownError(delay)) from None
     except PolicyError as exc:
-        raise error_type(str(exc)) from None
+        raise policy_error(error_type, exc) from None
     except error_type:
         # Includes a 200 login/denial page recognized by the adapter inside this context.
         if not failure_recorded:
             try:
                 limiter.failure(service)
             except PolicyError as exc:
-                raise error_type(str(exc)) from None
+                raise policy_error(error_type, exc) from None
         raise

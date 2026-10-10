@@ -1,5 +1,7 @@
 # USTC School MCP
 
+**首次使用：** 下载、解压后，把文件夹交给支持本地命令和 stdio MCP 的 AI，告诉它：“读取 AGENTS.md，部署这个 MCP，带我绑定邮箱并验证连接。”AI 的入口是 [部署流程](docs/ai-setup.md) 和 [首次接入 Skill](.agents/skills/school-onboarding/SKILL.md)。用户主要参与学校登录；无需手写配置。完整账号接入当前支持 Windows + 本机 Chrome。
+
 新增 [固定后台脚本](docs/script-workflows.md)：BB 定时提交与回执、教务一键候选排课/批次余量监控、邮箱定时发送/回复跟踪/规则归档。脚本不调用模型；选退课写接口仍待开放批次验证。
 
 面向个人学校事务的实验性 MCP 项目。当前提供九个独立服务和项目内 [学校查询与业务预览 Skill](.agents/skills/school-services/SKILL.md)，各网站的实际支持范围见下文。适配器包括中科大邮箱、Blackboard、教务系统、图书馆、教务处网站、南七集市、评课社区、青春科大及财务平台。
@@ -36,14 +38,17 @@ Blackboard、教务系统和个人图书馆共用经本人授权保存的统一�
 
 ## 当前能力
 
-教务18个工具、集市9个工具、评课13个工具。新增候选课表、选退课预检和社区发布工作流；当前无开放选课批次，评课独立登录与两站真实发布仍待验收。完整支持范围、测试与限制见[业务工作流](docs/business-workflows.md)。
+教务20个工具、集市10个工具、评课13个工具。支持候选课表、选退课预检和社区发布工作流；当前无开放选课批次，评课独立登录与两站真实发布仍待验收。完整支持范围、测试与限制见[业务工作流](docs/business-workflows.md)。
 
-财务平台共7个工具，已通过学校统一认证并验证智能报销登录页面；动态菜单和实际报销业务仍待逐项适配，见 [财务说明](docs/finance.md)。财务另提供官方指南中的业务分类和材料准备路线。BB共18个工具，支持标准个人作业查找、材料冻结、授权提交及新尝试附件核验；草稿、小组和未知模板暂不支持，见 [BB说明](docs/bb.md)。
+财务平台共8个工具，已验证学校统一认证及智能报销账号业务目录读取，并提供官方指南中的材料准备路线；实际填单、上传票据和报销提交仍待真实任务适配，见 [财务说明](docs/finance.md)。BB共19个工具，支持标准个人作业查找、材料冻结、授权提交及新尝试附件核验；草稿、小组和未知模板暂不支持，见 [BB说明](docs/bb.md)。
+
+`school_jw_course_schedule` 按名称定位唯一已选课堂，读取该课堂课表与同学期同班 BB 公告，返回已确认、歧义或证据不足；实验时间不会从普通授课时段推断。教务、BB、图书馆、集市、青春科大、财务各提供 `school_<站点>_query`：在已有登录授权且明确会话失效时尝试一次后台恢复，再继续原只读查询。权限拒绝、冷却及未知错误分别停止，不重放业务写操作。参数和固定处理路线见 [课程查询与恢复 Skill](.agents/skills/school-services/references/course-schedule-recovery.md)。
 
 | 工具 | 用途 |
 | --- | --- |
 | `school_mail_status` | 检查本地配置及凭据文件存在性，不解密、不联网；不是已连接证明 |
 | `school_mail_setup_guide` | 首次接入或失效时返回本机步骤，不联网、不弹窗、不接收密码 |
+| `school_mail_bind_status` | 查看本机自动绑定进度；密码已捕获时恢复验证，结果不明时禁止重复生成 |
 | `school_mail_check_connection` | 验证登录并查询收件箱总数、未读数 |
 | `school_mail_list_folders` | 列出文件夹，支持中文名称 |
 | `school_mail_search` | 按未读、发件人、主题、全文、日期搜索并分页 |
@@ -72,19 +77,29 @@ Blackboard、教务系统和个人图书馆共用经本人授权保存的统一�
 
 ## 本地安装
 
-需要 Python 3.11+ 和 uv。需要保存学校登录凭据、信任设备及站点会话的适配器目前以 Windows 为运行环境；浏览器登录还需要本机安装 Google Chrome。公共网站读取不需要登录，邮箱的非 Windows 配置见下文。
+需要 Python 3.11+ 和 uv。需要保存学校登录凭据、信任设备及站点会话的适配器目前以 Windows 为运行环境；浏览器登录还需要本机安装 Google Chrome。公共网站读取不需要登录，邮箱的非 Windows 配置见下文。下载 ZIP 不需要 Git。
 
 ```powershell
-uv sync --locked --cache-dir .local/uv-cache
+python bootstrap.py check
+python bootstrap.py install
+python bootstrap.py verify
+python bootstrap.py config --service mail --service teach
 ```
 
 ## 配置邮箱
 
 先调用 `school_mail_setup_guide`，或运行 `.venv\Scripts\python.exe -m school_mcp mail-guide` 查看步骤。完整流程、独立二次验证许可及限制见 [邮箱接入说明](docs/mail.md)。
 
-1. 本人明确选择接入后，人工登录 [中科大网页邮箱](https://mail.ustc.edu.cn/)，完成校方验证。
-2. 使用已有的客户端专用密码；如需新建，由本人在“设置 → 安全设置 → 客户端专用密码”中操作。程序不创建、删除或重置授权。
-3. 打开本地输入窗口，填写完整邮箱地址和专用密码：
+用户选择绑定并创建一个本项目专用密码后，运行下面命令。程序打开独立 Chrome，用户在学校页面登录；程序在可识别页面上自动创建密码、加密暂存，并在 IMAP 验证通过后保存。真实页面生成与捕获仍待用户验收，不能保证所有账号只登录一次即可完成。
+
+```powershell
+.venv\Scripts\python.exe -m school_mcp mail-bind --headed --create-client-password
+.venv\Scripts\python.exe -m school_mcp mail-bind-status
+```
+
+`captured` 状态使用 `mail-bind --resume`，不重复生成；`creation_attempted` 表示结果不明，停止并在本机检查。已有可用配置默认不覆盖。不会删除其他专用密码，也不会自动启用学校邮件验证码回退。详见 [邮箱接入说明](docs/mail.md)。
+
+已有专用密码或自动页面未适配时，可用本地输入窗口填写完整邮箱地址和专用密码：
 
 ```powershell
 python setup_mail.py

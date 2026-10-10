@@ -116,5 +116,9 @@ from ..script_tools import install as install_script_tools
 install_script_tools(mcp, 'bb')
 
 
+from ..connection_flow import install as install_connection_flow
+install_connection_flow(mcp, 'bb')
+
+
 def run() -> None:
     mcp.run(transport="stdio")

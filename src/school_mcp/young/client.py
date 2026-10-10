@@ -8,6 +8,7 @@ from playwright.sync_api import Error as PlaywrightError, sync_playwright
 from ..bb.login import CONTEXT_OPTIONS
 from ..browser import chrome_browser
 from .. import network
+from ..service_errors import identity_redirect, policy_error
 from .session import HOME, HOST, YoungError, load_session
 
 
@@ -35,7 +36,9 @@ class YoungClient:
                 if response is not None:
                     network.limiter.response("young", response.status, response.headers)
                     if response.status in {401, 403}:
-                        raise YoungError("青春科大会话失效或访问受限，请先核对登录状态；不要连续重试。")
+                        raise YoungError("青春科大会话失效或访问受限。", code='authentication_required' if response.status == 401 else 'access_denied')
+                if identity_redirect(page.url):
+                    raise YoungError('青春科大需要认证。', code='authentication_required')
                 page.get_by_text("欢迎您", exact=False).first.wait_for(timeout=15000)
                 if not authenticated_page(page):
                     raise YoungError("青春科大会话已失效，请调用 school_young_reconnect。")
@@ -47,7 +50,7 @@ class YoungClient:
                         "text_truncated": len(text) > max_chars, "headless": True, "content_is_untrusted": True,
                         "note": "数据大屏包含全校汇总，不能当作本人学时或本人活动记录。"}
         except network.PolicyError as exc:
-            raise YoungError(str(exc)) from None
+            raise policy_error(YoungError, exc) from None
         except PlaywrightError:
             network.limiter.failure("young")
             raise YoungError("青春科大后台页面读取未完成，可能会话失效或页面超时；请检查状态后重新连接。") from None

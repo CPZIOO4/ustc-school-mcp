@@ -13,7 +13,10 @@ API_URL = "https://nan7market-api.0x01.work/api"
 LOGIN_URL = "https://sso-proxy.lug.ustc.edu.cn/auth/default/?service=https%3A%2F%2Fnan7market.com%2Fcas"
 
 
-class Nan7Error(Exception):
+from ..service_errors import ServiceError
+
+
+class Nan7Error(ServiceError):
     """A credential-free error safe to show to the MCP client."""
 
 
@@ -45,9 +48,9 @@ def load_session() -> dict:
         except BBError:
             account = None
         if account is not None and data.get("account") != account:
-            raise Nan7Error("南七集市会话与当前统一身份账号不一致，请调用 school_nan7_reconnect。")
+            raise Nan7Error("南七集市会话与当前统一身份账号不一致，请调用 school_nan7_reconnect。", code='authentication_required')
         return data
     except Nan7Error:
         raise
     except (MailError, OSError, ValueError, TypeError, KeyError):
-        raise Nan7Error("南七集市尚未登录或会话无法读取，请调用 school_nan7_reconnect。") from None
+        raise Nan7Error("南七集市尚未登录或会话无法读取，请调用 school_nan7_reconnect。", code='authentication_required') from None

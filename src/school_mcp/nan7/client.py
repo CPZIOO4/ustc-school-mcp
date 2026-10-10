@@ -49,7 +49,7 @@ class Nan7Client:
             with http_client("nan7", Nan7Error, timeout=30, follow_redirects=False, transport=self._transport) as client:
                 with client.stream("POST", API_URL + path, json=payload, headers={"Authorization": "Bearer " + self._token, "Origin": SITE_URL, "Referer": SITE_URL + "/"}) as response:
                     if response.status_code in (401, 403):
-                        raise Nan7Error("南七集市会话失效或无访问权限，请调用 school_nan7_reconnect。")
+                        raise Nan7Error("南七集市会话失效或无访问权限。", code='authentication_required' if response.status_code == 401 else 'access_denied')
                     if response.is_redirect:
                         raise Nan7Error("南七集市接口发生意外跳转，已停止以保护会话。")
                     if response.status_code != 200:

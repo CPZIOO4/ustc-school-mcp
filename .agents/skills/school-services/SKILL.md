@@ -5,6 +5,8 @@ description: 使用本项目的学校 MCP 收发与回复邮件、查询中科�
 
 # 学校邮件、排课、查询与授权业务
 
+首次安装、缺少 MCP 配置或第一次绑定邮箱时，先读取 [首次接入 Skill](../school-onboarding/SKILL.md)。部署工具和账号认证是不同阶段，完成后再回到本业务流程。
+
 用户要求 BB、邮箱或教务定时/持续执行，或希望一步收集课程排课时，先读 [固定脚本流程](references/script-workflows.md)。脚本独立执行，AI 仅填参数和查询状态；教务选退课仍未验证写接口。
 
 先按用户问题选择实际可用的 `school_*` 工具。工具未加载时解释需要重新加载已注册 MCP；不把配置文件存在当作当前对话已经能够调用工具。通过状态工具了解本机配置，通过对应 `check_connection` 验证真实连通性。公共教务通知和评课社区不需要邮箱或个人统一身份登录。
@@ -29,6 +31,7 @@ description: 使用本项目的学校 MCP 收发与回复邮件、查询中科�
 
 | 任务 | 标准流程 |
 | --- | --- |
+| 查某课授课/实验时间、合并课表与 BB 公告、查询中恢复登录 | [课程安排与登录恢复](references/course-schedule-recovery.md)，优先固定工具，按返回状态继续 |
 | 盘点能用什么、核实已实现能力 | [业务目录与证据](references/business-catalog.md) |
 | 收信、草稿查找/修改/作废、发送、回复、附件验收及已发送副本 | [邮件固定流程](references/mail-workflows.md)，发送和副本保存依据用户授权 |
 | 转发、回复全部、已读标记、移动/归档、撤销、导出、自动分类、往来摘要 | [邮件整理流程](references/mail-organization.md)，只有归档文件夹及其子目录算归档 |
@@ -40,7 +43,7 @@ description: 使用本项目的学校 MCP 收发与回复邮件、查询中科�
 | 了解第二课堂报名、作品上传与提交路径及实现边界 | [报名与作品提交路线](references/young-registration-submission.md)，普通单次线下定时报名已有工具，真实提交待指定项目开放后验收 |
 | BB 课程、图书馆及邮件和通知辅助查询 | [课程与图书馆流程](references/course-library-workflows.md) |
 | BB 作业查找、历史尝试查看、材料准备及授权重交流程 | [BB 作业流程](references/bb-assignment-workflows.md)，标准个人作业准备、提交、结果核验已有工具，按明确授权执行 |
-| 财务处官网、统一认证及智能报销入口 | [财务接入流程](references/finance-workflows.md)，登录已验证，报销业务尚未逐项适配 |
+| 财务处官网、统一认证及智能报销入口 | [财务接入流程](references/finance-workflows.md)，登录与账号业务目录已验证，实际报销表单尚未逐项适配 |
 
 浏览器可达不等于 MCP 已适配。优先使用现有工具；未适配的业务仅在用户要求预览时，以后台 Playwright + Chrome、独立 context 复用该站点已有会话。入口从实时菜单获取，不猜课程 ID、账号标识或深层操作 URL。不要为了绕过工具拒绝而放宽路径白名单。
 
@@ -50,8 +53,8 @@ description: 使用本项目的学校 MCP 收发与回复邮件、查询中科�
 
 ## 邮箱接入与二次验证
 
-- 未接入或连接失效时调用 `school_mail_setup_guide`。该工具提供本机步骤，不会联网或弹窗。由用户明确启动本机 `python setup_mail.py` 并在遮罩窗口输入完整地址和专用密码。
-- 学校网页登录、二次验证和新建客户端密码由用户在本机处理。程序不新建、删除或重置授权；不要为诊断启动这些操作。不要向对话索取密码、验证码、Cookie 或信任设备文件，也不要从旧对话取凭据。
+- 未接入时调用 `school_mail_setup_guide`，按首次接入 Skill 执行 `mail-bind --headed --create-client-password`：用户登录、脚本创建一个专用密码并加密捕获。引导工具本身不联网、不弹窗。已有密码可用本机 `python setup_mail.py` 遮罩录入。
+- 创建密码须有用户绑定及创建的授权，不为诊断生成。`school_mail_bind_status` 返回 `captured` 时用 `mail-bind --resume`；`creation_attempted` 时停止，不删除记录或重复生成。程序不删除或重置已有授权。不要向对话索取密码、验证码、Cookie 或信任设备文件，也不要从旧对话取凭据。
 - 邮件二次验证需要单独明确启用。本机 `bb-email-verification --enable` 将许可绑定当前配置的邮箱；`--disable` 关闭许可。旧版只有布尔许可、邮箱已更换或页面无法确认目标时，交回用户在本机处理。
 - 会话失效时先查看当前会话中已有的用户授权。已授权使用本机保存凭据及信任设备完成登录时，直接调用所选站点的 `reconnect`，无需重复询问或让用户再输入密码；没有这项授权时，单纯检查连接不自动扩大为重新认证。默认 Playwright + Chrome 无头后台运行；`waiting_for_verification` 时解释需要人工处理并停止依赖操作。只有用户明确选择人工登录才给出对应 `--headed` 命令，不自动弹窗、不操作日常浏览器。
 - 重连返回 `status_tool` 和建议检查间隔。`login_running=true` 表示进程仍在运行，不要再次启动；`busy_service` 表示另一个学校登录正占用共享设备状态，应先等待该服务。`interrupted` 表示进程已退出却未报告完成，不应继续等待旧状态。历史 `connected` 和 `configured=true` 不保证当前会话有效，以随后原查询或连接检查为准。

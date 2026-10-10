@@ -91,3 +91,9 @@ def run(timeout_seconds=240):
     except PlaywrightError:
         login_state('error', '财务后台 Chrome 登录未完成，请检查本地进度。')
         raise FinanceError('财务后台登录未完成；不会自动打开桌面窗口。') from None
+    except Exception as exc:
+        # Driver startup failures can be plain Exception rather than PlaywrightError.
+        # Never leave a dead worker recorded as "starting", or expose raw driver logs.
+        login_state('error', '财务后台运行进程异常退出，未确认登录成功；请检查浏览器驱动和可用内存。',
+                    reason='runtime_failure', error_type=type(exc).__name__)
+        raise FinanceError('财务后台运行环境异常；已有会话保留，没有自动重复认证。', code='runtime_failure') from None

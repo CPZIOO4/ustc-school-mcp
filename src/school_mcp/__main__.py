@@ -6,12 +6,18 @@ import json
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="School MCP")
-    parser.add_argument("command", nargs="?", default="serve", choices=("serve", "doctor", "setup", "mail-guide", "check", "bb-serve", "bb-setup", "bb-email-verification", "bb-login", "bb-check", "jw-serve", "jw-login", "jw-check", "library-serve", "library-login", "library-check", "teach-serve", "nan7-serve", "nan7-login", "icourse-serve", "icourse-login", "young-serve", "young-login", "young-registration-run", "young-registration-status", "young-registration-worker", "finance-serve", "finance-login", "finance-check", "script-worker"))
-    parser.add_argument("--service", action="append", choices=("mail", "bb", "jw", "library", "teach", "nan7", "icourse", "young", "finance"), help="Limit doctor to selected services; repeat for multiple services")
+    parser.add_argument("command", nargs="?", default="serve", choices=("serve", "doctor", "first-use", "setup", "mail-guide", "mail-bind", "mail-bind-status", "check", "bb-serve", "bb-setup", "bb-email-verification", "bb-login", "bb-check", "jw-serve", "jw-login", "jw-check", "library-serve", "library-login", "library-check", "teach-serve", "nan7-serve", "nan7-login", "icourse-serve", "icourse-login", "young-serve", "young-login", "young-registration-run", "young-registration-status", "young-registration-worker", "finance-serve", "finance-login", "finance-check", "script-worker"))
+    parser.add_argument("--service", action="append", choices=("mail", "bb", "jw", "library", "teach", "nan7", "icourse", "young", "finance"), help="Limit doctor or first-use to selected services; repeat for multiple services")
     parser.add_argument("--address", default="", help="Prefill the local setup window with this email address")
     parser.add_argument("--force-identity-login", action="store_true", help="Run the registered USTC identity flow even if the BB session is valid")
     parser.add_argument("--email-verification", action="store_true", help="Authorize bb-setup to read the connected mailbox for USTC login verification codes")
     parser.add_argument("--headed", action="store_true", help="Explicitly open a visible Chrome window for manual school login")
+    parser.add_argument("--verify-runtime", action="store_true", help="First-use: isolated stdio and headless Chrome check, no school access")
+    parser.add_argument("--check-connections", action="store_true", help="First-use: explicitly check selected school connections without login")
+    parser.add_argument("--create-client-password", action="store_true", help="Mail-bind: authorize creating one client password after manual login")
+    parser.add_argument("--resume", action="store_true", help="Mail-bind: retry validation of an encrypted pending credential, no browser")
+    parser.add_argument("--replace-existing", action="store_true", help="Mail-bind: explicitly replace existing local mailbox credentials")
+    parser.add_argument("--login-timeout", type=int, default=600, help="Mail-bind manual login wait in seconds (30-900)")
     policy = parser.add_mutually_exclusive_group()
     policy.add_argument("--enable", action="store_true", help="Explicitly bind email verification to the currently configured mailbox")
     policy.add_argument("--disable", action="store_true", help="Disable email verification without replacing identity credentials")
@@ -19,6 +25,36 @@ def main() -> None:
     parser.add_argument("--schedule-id", help="Native scheduled worker ID")
     parser.add_argument("--private-dir", help="Private directory for a scheduled worker")
     args = parser.parse_args()
+    if (args.verify_runtime or args.check_connections) and args.command != 'first-use':
+        parser.error('--verify-runtime/--check-connections require first-use')
+    if (args.create_client_password or args.resume or args.replace_existing) and args.command != 'mail-bind':
+        parser.error('--create-client-password/--resume/--replace-existing require mail-bind')
+    if args.command in {'first-use', 'mail-bind', 'mail-bind-status'}:
+        if args.enable or args.disable or args.force_identity_login or args.email_verification or args.job_id or args.schedule_id or args.private_dir:
+            parser.error('Onboarding commands do not accept identity authorization or worker flags')
+        if args.command == 'first-use':
+            if args.headed:
+                parser.error('first-use never opens visible windows')
+            from .first_use import first_use
+            result = first_use(args.service, verify_runtime=args.verify_runtime, check_connections=args.check_connections)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            raise SystemExit(0 if result.get('runtime', {}).get('ready', True) and result.get('connections', {}).get('all_connected', True) else 1)
+        if args.service:
+            parser.error('--service requires doctor or first-use')
+        if args.command == 'mail-bind-status' and args.headed:
+            parser.error('mail-bind-status never opens a browser')
+        from .mail.browser_setup import run, status
+        from .mail.config import MailError
+        try:
+            result = status() if args.command == 'mail-bind-status' else run(
+                headed=args.headed, create_client_password=args.create_client_password, resume=args.resume,
+                address=args.address, replace_existing=args.replace_existing, timeout=args.login_timeout,
+                notify=lambda state: print(json.dumps(state, ensure_ascii=False), flush=True))
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            raise SystemExit(0 if args.command == 'mail-bind-status' or result['state'] == 'connected' else 1)
+        except MailError as exc:
+            parser.exit(1, str(exc) + '\n')
+        return
     if args.command == 'script-worker':
         if not args.job_id or not args.private_dir:
             parser.error('script-worker requires --job-id and --private-dir')

@@ -6,6 +6,7 @@ from urllib.parse import parse_qsl, urljoin, urlsplit
 import httpx
 
 from ..network import http_client
+from ..service_errors import identity_redirect
 from bs4 import BeautifulSoup
 
 from .session import BASE_URL, HOST, JWError, load_session
@@ -50,6 +51,8 @@ class JWClient:
                     params = None
                     if response.is_redirect:
                         target = urlsplit(urljoin(str(response.url), response.headers.get("location", "")))
+                        if identity_redirect(target.geturl()) or (target.scheme == 'https' and target.hostname == HOST and target.port in (None, 443) and not target.username and not target.password and target.path in {'/login', '/ucas-sso/login'}):
+                            raise JWError('教务系统需要认证。', code='authentication_required')
                         if target.scheme != "https" or target.hostname != HOST or target.port not in (None, 443) or target.username or target.password:
                             raise JWError("教务系统登录已失效，请调用 school_jw_reconnect 重新登录。")
                         query = parse_qsl(target.query, keep_blank_values=True)
@@ -63,14 +66,14 @@ class JWClient:
                         params = dict(query)
                         continue
                     if response.status_code in {401, 403}:
-                        raise JWError("教务系统会话失效或没有访问权限，请调用 school_jw_reconnect 后查看登录状态，再重试当前查询。")
+                        raise JWError("教务系统会话失效或没有访问权限。", code='authentication_required' if response.status_code == 401 else 'access_denied')
                     response.raise_for_status()
                     content_type = response.headers.get("content-type", "").lower()
                     if len(response.content) > 5 * 1024 * 1024 or not any(value in content_type for value in ("text/html", "application/json")):
                         raise JWError("教务页面类型或大小超出读取范围。")
                     soup = BeautifulSoup(response.text, "html.parser") if "text/html" in content_type else None
                     if soup and soup.select('a[href="/ucas-sso/login"], input[type="password"]'):
-                        raise JWError("教务系统尚未认证，请调用 school_jw_reconnect 后查看登录状态，再重试当前查询。")
+                        raise JWError("教务系统尚未认证。", code='authentication_required')
                     return response
                 raise JWError("教务系统跳转次数超过限制。")
         except JWError:
