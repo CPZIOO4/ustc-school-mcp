@@ -40,7 +40,7 @@ class Worker:
 
 
 # Slow provider requests must not block local storage, status, or task recovery.
-_workers = {name: Worker() for name in ('network', 'public', 'browser', 'local')}
+_workers = {name: Worker() for name in ('network', 'public', 'authenticated', 'browser', 'local')}
 
 
 def enabled():
@@ -73,6 +73,7 @@ def call(operation, value):
         raise ModelError('context_capacity', '本轮本机请求过大；原记录保留，请缩小任务范围。')
     channel = ('network' if operation in {'model_complete', 'model_list'} else
                'public' if operation == 'public_read' else
+               'authenticated' if operation == 'authenticated_read' else
                'browser' if operation.startswith('browser_') else 'local')
     worker = _workers[channel]
     with worker.lock:

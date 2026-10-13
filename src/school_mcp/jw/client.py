@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 
 from .session import BASE_URL, HOST, JWError, load_session
 from .parsing import activity_row, course_context, grade_rows, lesson_row
+from . import native
 
 READ_PATHS = {"/", "/home", "/home/menu", "/for-std/course-table", "/for-std/course-table/get-data", "/for-std/grade/sheet", "/for-std/grade/sheet/getSemesters", "/for-std/grade/sheet/getGradeSheetTypes", "/for-std/grade/sheet/getGradeList"}
 
@@ -42,6 +43,12 @@ class JWClient:
 
     def get(self, path: str, params: dict | None = None) -> httpx.Response:
         validate_path(path, params)
+        if native.enabled(self):
+            from ..authenticated_native import request
+            response = request('jw', path, self.cookies, self.user_agent, JWError, params=params)
+            if 'text/html' in response.headers.get('content-type', '').lower():
+                native.body('validate_response', response)
+            return response
         cookies = httpx.Cookies()
         for cookie in self.cookies:
             cookies.set(cookie["name"], cookie["value"], domain=cookie["domain"], path=cookie.get("path", "/"))
@@ -87,6 +94,8 @@ class JWClient:
         if not 1 <= max_chars <= 100000:
             raise JWError("max_chars 范围为 1–100000。")
         response = self.get("/home")
+        if native.enabled(self):
+            return native.body('home', response, max_chars=max_chars)
         soup = BeautifulSoup(response.text, "html.parser")
         title = soup.title.get_text(strip=True) if soup.title else "教务系统"
         for node in soup.select("script, style, input, textarea, select"):
@@ -107,6 +116,8 @@ class JWClient:
 
     def check(self) -> dict:
         response = self.get("/home")
+        if native.enabled(self):
+            return native.body('check', response)
         soup = BeautifulSoup(response.text, "html.parser")
         if soup.select_one("#e-top-menu") is None:
             raise JWError("未取得完整的个人教务门户，请重新登录或稍后重试。")
@@ -114,6 +125,8 @@ class JWClient:
 
     def json(self, path: str, params: dict | None = None):
         response = self.get(path, params)
+        if native.enabled(self):
+            return native.body('json', response)
         try:
             return response.json()
         except ValueError:
@@ -121,6 +134,8 @@ class JWClient:
 
     def modules(self) -> dict:
         data = self.json("/home/menu")
+        if native.enabled(self):
+            return native.call('modules', data=data)
         if not isinstance(data, list):
             raise JWError("教务菜单结构已变化。")
         modules = []
@@ -133,6 +148,8 @@ class JWClient:
 
     def context(self) -> dict:
         response = self.get("/for-std/course-table")
+        if native.enabled(self):
+            return native.body('context', response)
         return course_context(response.text, str(response.url))
 
     def semesters(self) -> dict:
@@ -142,6 +159,12 @@ class JWClient:
     def course_data(self, semester_id: int = 0) -> tuple[dict, dict]:
         validate_id(semester_id, "semester_id")
         context = self.context()
+        if native.enabled(self):
+            selection = native.call('course_selection', context=context, semester_id=semester_id)
+            data = self.json('/for-std/course-table/get-data', selection['params'])
+            data = native.call('course_data', data=data)
+            context.update(semester=selection['semester'])
+            return context, data
         selected = semester_id or context["current_semester_id"]
         semester = next((s for s in context["semesters"] if s["id"] == selected), None)
         if semester is None:
@@ -156,6 +179,8 @@ class JWClient:
         if len(keyword) > 200:
             raise JWError("课程关键词过长。")
         context, data = self.course_data(semester_id)
+        if native.enabled(self):
+            return native.call('courses', context=context, data=data, keyword=keyword)
         rows = [lesson_row(lesson) for lesson in data["lessons"]]
         rows = [row for row in rows if keyword.casefold() in (row["course_name"] or "").casefold()]
         return {"semester": context["semester"], "courses": rows, "count": len(rows), "total_in_semester": len(data["lessons"]), "content_is_untrusted": True}
@@ -166,6 +191,11 @@ class JWClient:
         if weekday > 7:
             raise JWError("weekday 为 0 或 1–7，1 表示周一，7 表示周日。")
         context, data = self.course_data(semester_id)
+        if native.enabled(self):
+            # Validate weeks before fetching the larger activity response.
+            native.call('timetable', context=context, data=data, result={'studentTableVm': {'activities': []}}, week=week, weekday=weekday)
+            result = self.json(f"/for-std/course-table/semester/{context['semester']['id']}/print-data/{context['student_id']}", {'weekIndex': ''})
+            return native.call('timetable', context=context, data=data, result=result, week=week, weekday=weekday)
         if week and week not in data.get("weekIndices", []):
             raise JWError("周次不在该学期课表提供的范围内。")
         selected = context["semester"]["id"]
@@ -184,6 +214,13 @@ class JWClient:
             raise JWError("成绩课程关键词过长。")
         semesters = self.json("/for-std/grade/sheet/getSemesters")
         types = self.json("/for-std/grade/sheet/getGradeSheetTypes")
+        if native.enabled(self):
+            selection_args = dict(semesters=semesters, types=types, semester_id=semester_id, train_type_id=train_type_id)
+            selection = native.call('grade_selection', **selection_args)
+            if selection.get('needs_course_semesters'):
+                selection = native.call('grade_selection', **selection_args, course_semesters=self.semesters()['semesters'])
+            data = self.json('/for-std/grade/sheet/getGradeList', selection['params'])
+            return native.call('grades', semesters=semesters, identifiers=selection['identifiers'], train_type_id=train_type_id, data=data, keyword=keyword, summary_only=summary_only)
         if not isinstance(semesters, list) or not isinstance(types, list):
             raise JWError("成绩学期或修读类型结构已变化。")
         if train_type_id not in {t["id"] for t in types}:

@@ -12,6 +12,7 @@ from ..browser import chrome_browser
 from .. import network
 from ..service_errors import identity_redirect, policy_error
 from .session import HOME, HOST, YoungError, load_session
+from . import native
 
 
 def authenticated_page(page) -> bool:
@@ -48,6 +49,8 @@ class YoungClient:
                 page.get_by_text(re.compile(r"数据更新截至时间\s*\d{4}年")).first.wait_for(timeout=15000)
                 text = page.locator("body").inner_text(timeout=5000)
                 network.limiter.success("young")
+                if native.enabled():
+                    return native.parse('home', text=text, title=page.title(), max_chars=max_chars)
                 return {"connected": True, "title": page.title(), "source": HOME, "text": text[:max_chars],
                         "text_truncated": len(text) > max_chars, "headless": True, "content_is_untrusted": True,
                         "note": "数据大屏包含全校汇总，不能当作本人学时或本人活动记录。"}

@@ -1,6 +1,6 @@
 [package]
 name = "school-core"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 license = "MIT"
 rust-version = "1.99"
@@ -8,7 +8,7 @@ rust-version = "1.99"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip", "brotli", "deflate", "charset"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip", "brotli", "deflate", "charset", "cookies"] }
 tokio = { version = "1", features = ["rt", "time", "net"] }
 url = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }

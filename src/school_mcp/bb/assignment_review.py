@@ -11,10 +11,13 @@ from ..browser import chrome_browser
 from .assignments import ASSIGNMENT_PATH, ID, catalog
 from .parsing import login_page, safe_url, soup_of
 from .session import BBError, load_session
+from . import native
 
 
 def review_url(entry: dict, course_id: str, content_id: str) -> str:
     """Accept only the exact view shape observed on this installation."""
+    if native.enabled():
+        return native.call('review_url', entry_path=entry['entry_path'], course_id=course_id, content_id=content_id)
     url = safe_url(entry['entry_path'])
     parsed = urlsplit(url)
     query = parse_qs(parsed.query, keep_blank_values=True)
@@ -29,6 +32,8 @@ def review_url(entry: dict, course_id: str, content_id: str) -> str:
 
 
 def parse_review(html: str, *, include_attachment_names: bool = False) -> dict:
+    if native.enabled():
+        return native.call('review', html=html, include_attachment_names=include_attachment_names)
     soup = soup_of(html)
     heading = soup.select_one('#pageTitleHeader')
     title = heading.get_text(' ', strip=True) if heading else ''

@@ -134,7 +134,9 @@ class TaskRecoveryTests(unittest.TestCase):
 
     def test_young_unknown_result_and_terminal(self):
         store, identifier=self.young()
-        store.transition(identifier,'scheduled','submitting',{'item_id':'synthetic-item'})
+        due=datetime.fromisoformat(store.view(identifier)['opens_at'])
+        self.assertTrue(store.claim(identifier,due))
+        store.transition(identifier,'checking','submitting',{'item_id':'synthetic-item'})
         with patch.object(api,'account',return_value=store.account):
             self.assertTrue(self.detail('young',identifier)['next_step']['arguments']['verify'])
             store.transition(identifier,'submitting','verified',{})

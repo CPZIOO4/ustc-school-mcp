@@ -67,7 +67,7 @@ pub fn launch(resources: PathBuf, data_dir: PathBuf) -> Result<Backend, String> 
         .map_err(|_| "本地业务引擎通信中断。")?;
     let hello: Handshake = serde_json::from_str(&line).map_err(|_| "本地业务引擎版本不兼容。")?;
     if hello.protocol != 1 { return Err("本地业务引擎版本不兼容。".into()); }
-    if hello.core.as_ref().is_none_or(|c| c["implementation"] != "rust" || c["version"] != "0.5.0") {
+    if hello.core.as_ref().is_none_or(|c| c["implementation"] != "rust" || c["version"] != "0.6.0") {
         return Err("原应用仍在使用旧引擎；请先在原应用中结束任务并退出，再打开新版。登录态会保留。".into());
     }
     policy::validate_origin(&hello.origin, &hello.token)?;

@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlsplit, urlu
 from bs4 import BeautifulSoup
 
 from .session import BASE_URL, BB_HOSTS, BBError
+from . import native
 
 
 def soup_of(html: str) -> BeautifulSoup:
@@ -13,6 +14,8 @@ def soup_of(html: str) -> BeautifulSoup:
 
 
 def login_page(html: str, url: str) -> bool:
+    if native.enabled():
+        return native.call('login_page', html=html, url=url)
     parsed = urlsplit(url)
     if parsed.hostname not in BB_HOSTS or parsed.path.startswith(("/nginx_auth/", "/webapps/login")):
         return True
@@ -21,6 +24,8 @@ def login_page(html: str, url: str) -> bool:
 
 
 def safe_url(path: str) -> str:
+    if native.enabled():
+        return native.call('safe_url', path=path)
     if not path or any(c in path for c in "\r\n\x00"):
         raise BBError("BB 页面地址无效。")
     url = urljoin(BASE_URL + "/", path)
@@ -49,6 +54,8 @@ def normalize_link(url: str) -> str:
 
 
 def course_links(html: str) -> list[dict]:
+    if native.enabled():
+        return native.call('course_links', html=html)
     soup = soup_of(html)
     courses: dict[str, dict] = {}
     for anchor in soup.select("a[href]"):
@@ -72,6 +79,8 @@ def course_links(html: str) -> list[dict]:
 
 
 def page_data(html: str, url: str, max_chars: int = 6000) -> dict:
+    if native.enabled():
+        return native.call('page', html=html, url=url, max_chars=max_chars)
     soup = soup_of(html)
     title = soup.title.get_text(" ", strip=True) if soup.title else ""
     content = soup.select_one("#contentPanel, #content, #containerdiv, main") or soup.body or soup

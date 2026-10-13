@@ -1,6 +1,6 @@
 # USTC School MCP
 
-桌面客户端正迁移到 [Rust + Tauri](docs/native-desktop.md)：独立应用窗口、模型请求、智能体执行决策与加密记录由原生核心处理，沿用本人已有数据。学校网站适配仍通过 Python 临时兼容层运行，详细边界见 [迁移进度](docs/rust-migration.md)。当前验收目标为 Windows，macOS/Linux/Android/iOS 尚未完成业务适配。原浏览器版保持可用。
+桌面客户端正迁移到 [Rust + Tauri](docs/native-desktop.md)：独立窗口、模型请求、智能体执行决策与加密记录，以及教务解析/排课、BB 作业决策、青春科大报名事务由原生核心处理，沿用本人已有数据。DOM 操作、应用协调及其余适配仍保留 Python 临时层，详细边界与旧版兼容限制见 [迁移进度](docs/rust-migration.md)。当前验收目标为 Windows，macOS/Linux/Android/iOS 尚未完成业务适配。
 
 新增 [信息中心](docs/campus-digest.md)：公开就业/实习/宣讲与三个学院通知、已有校园来源汇总、按条件订阅、应用内及授权邮箱简报、课表/事项 ICS 导出。默认仅预览；用户选择来源和收件人后开启固定后台脚本。支持协调器 `digest` 流程，公开网页范围与运行限制见说明。
 

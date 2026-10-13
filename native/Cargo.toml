@@ -30,3 +30,8 @@ custom-protocol = ["tauri/custom-protocol"]
 strip = true
 lto = "thin"
 codegen-units = 1
+
+# Avoid one very large LLVM unit for the Tauri host on memory-constrained builds.
+# Keep dependency settings and release optimization/LTO unchanged.
+[profile.release.package.ustc-school-desktop]
+codegen-units = 16

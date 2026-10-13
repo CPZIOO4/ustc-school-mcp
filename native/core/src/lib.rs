@@ -1,9 +1,12 @@
 //! Native business core. No UI, school credentials, or Python runtime dependency.
 pub mod agent;
+pub mod auth_http;
+pub mod bb;
 pub mod browser;
 pub mod catalog;
 pub mod context;
 pub mod finance;
+pub mod jw;
 pub mod model;
 pub mod network;
 pub mod public_sites;
@@ -12,6 +15,7 @@ pub mod runner;
 pub mod sessions;
 pub mod storage;
 pub mod strict_json;
+pub mod young;
 
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -37,6 +41,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Core {
     model: model::Client,
     public: network::Client,
+    authenticated: auth_http::Client,
     browser: browser::Manager,
 }
 impl Core {
@@ -44,6 +49,7 @@ impl Core {
         Ok(Self {
             model: model::Client::new()?,
             public: network::Client::new()?,
+            authenticated: auth_http::Client::new()?,
             browser: browser::Manager::new(),
         })
     }
@@ -62,7 +68,8 @@ impl Core {
                     "agent_create", "agent_read", "agent_list", "agent_claim", "agent_finish", "agent_failure",
                     "catalog_route", "catalog_workflows", "catalog_workflow", "catalog_mode",
                     "catalog_entry", "catalog_describe", "recovery_failure", "recovery_returned_failure",
-                    "network_policy", "public_read", "public_parse", "sessions_filter", "sessions_merge",
+                    "network_policy", "public_read", "public_parse", "authenticated_read", "jw", "bb_adapter",
+                    "young_parse", "young_policy", "young_job", "sessions_filter", "sessions_merge",
                     "sessions_read", "sessions_write", "sessions_device_save", "sessions_identity_save", "sessions_validate",
                     "browser_start", "browser_stop", "browser_status"]})),
             "model_validate" => Ok(serde_json::to_value(model::Settings::parse(input)?)
@@ -72,6 +79,10 @@ impl Core {
             "model_complete" => self.model.complete(input).await,
             "model_list" => self.model.list(input).await,
             "public_parse" => public_sites::parse_input(input),
+            "authenticated_read" => self.authenticated.request(input).await,
+            "jw" => jw::dispatch(input),
+            "bb_adapter" => bb::dispatch(input),
+            "young_parse" | "young_policy" | "young_job" => young::dispatch(operation, input),
             "public_read" => {
                 let planned = public_sites::request(input)?;
                 let database = input["database"].as_str().ok_or_else(Error::invalid)?;

@@ -7,9 +7,12 @@ from datetime import datetime, timezone
 from .registration import (Jobs, RegistrationBrowser, check_candidate, load_session,
                            require, school_time, stamp, summary, YoungError, TERMINAL,matches_name)
 from .. import network
+from . import native
 
 
 def monitoring_decision(detail, job, now):
+    if native.enabled():
+        return native.policy('monitor', detail=detail, job=job, now=now.isoformat())
     if job.get('expires_at') and now>stamp(job['expires_at']):return 'expired'
     if detail is None:return 'waiting_for_project'
     require(matches_name(detail,job),'活动名称不符合授权筛选条件。')
@@ -65,9 +68,15 @@ def monitor_job(job_id, *, sleep=time.sleep, clock=lambda:datetime.now(timezone.
                         # Durable state transition is the cross-process write gate.
                         check_candidate(detail,job,clock())
                         require(not job.get('expires_at') or clock()<=stamp(job['expires_at']),'监控截止时间已过。')
+                        if native.enabled():
+                            native.policy('before_write', detail=detail, job=job, now=clock().isoformat())
                         store.transition(job_id,'monitoring','submitting',dict(item_id=detail['id']))
                     result=browser.submit(detail['id'],before_write)
                     after=browser.detail(detail['id'])
+                    if native.enabled():
+                        receipt=native.policy('receipt', detail=after, job=job, item_id=detail['id'], response=result)
+                        store.transition(job_id,'submitting',receipt['state'],receipt['result'])
+                        break
                     verified=str(after.get('booleanRegistration'))=='1'
                     store.transition(job_id,'submitting','verified' if verified else 'uncertain',
                         dict(item=summary(after),registration_verified=verified,response_success=result.get('success') is True,credit_hours_awarded=False))
@@ -96,6 +105,12 @@ def run_schedule(schedule_id):
     """Entry called by pythonw from Windows Task Scheduler, not by an AI turn."""
     from .scheduler import read_spec, write_spec
     spec=read_spec(schedule_id)
+    try:
+        native.restore_runtime(spec)
+    except YoungError:
+        spec.update(worker_state='stopped',reason='报名计划原生核心无法核验；未访问学校或提交报名。')
+        write_spec(schedule_id,spec)
+        return
     while datetime.now(timezone.utc)<stamp(spec['monitor_from']):
         time.sleep(max(0,min(5,(stamp(spec['monitor_from'])-datetime.now(timezone.utc)).total_seconds())))
         spec=read_spec(schedule_id)

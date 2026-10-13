@@ -12,6 +12,7 @@ from ..service_errors import identity_redirect
 
 from .parsing import course_links, login_page, page_data, safe_url
 from .session import BASE_URL, BB_HOSTS, PORTAL_PATH, BBError, load_session
+from . import native
 
 READ_PATHS = (
     "/webapps/portal/execute/tabs/tabAction",
@@ -57,6 +58,9 @@ class BBClient:
     def get(self, path: str) -> httpx.Response:
         url = safe_url(path)
         validate_read_url(url)
+        if self.transport is None and native.enabled():
+            from ..authenticated_native import request
+            return request('bb', url, self.cookies, 'SchoolMCP/0.1 (personal course reader)', BBError)
         cookie_jar = httpx.Cookies()
         for cookie in self.cookies:
             cookie_jar.set(cookie["name"], cookie["value"], domain=cookie["domain"], path=cookie.get("path", "/"))
@@ -94,6 +98,8 @@ class BBClient:
 
     def check(self) -> dict:
         response = self.get(PORTAL_PATH)
+        if native.enabled():
+            return native.call('check', html=response.text, url=str(response.url))
         courses = course_links(response.text)
         title = page_data(response.text, str(response.url), max_chars=1000)["title"]
         return {"connected": True, "title": title, "course_links_in_portal": len(courses), "read_only": True}
@@ -102,6 +108,8 @@ class BBClient:
         if len(keyword) > 200 or (term and not re.fullmatch(r"20\d{2}(?:FA|SP|SU|WI)", term)):
             raise BBError("课程关键字过长，或学期格式无效；学期示例为 2026FA。")
         response = self.get(PORTAL_PATH)
+        if native.enabled():
+            return native.call('courses', html=response.text, url=str(response.url), keyword=keyword, term=term)
         courses = course_links(response.text)
         filtered = [course for course in courses if keyword.casefold() in course["title"].casefold() and (not term or term in course["title"])]
         return {"courses": filtered, "count": len(filtered), "total_in_portal": len(courses), "source": str(response.url), "content_is_untrusted": True, "note": "仅返回门户 HTML 中提供的课程；若门户含动态课程模块，需要单独适配。" if not courses else ""}
@@ -113,11 +121,15 @@ class BBClient:
         return page_data(response.text, str(response.url), max_chars=max_chars)
 
     def course_page(self, course_id: str, max_chars: int = 6000) -> dict:
+        if native.enabled():
+            return self.read_page(native.call('course_path', course_id=course_id), max_chars=max_chars)
         if not re.fullmatch(r"_?\d+(?:_\d+)?", course_id):
             raise BBError("请使用课程列表中的有效 course_id。")
         return self.read_page(f"/webapps/blackboard/execute/launcher?type=Course&id={course_id}", max_chars=max_chars)
 
     def announcements(self, course_id: str, max_chars: int = 6000) -> dict:
+        if native.enabled():
+            return self.read_page(native.call('announcement_path', course_id=course_id), max_chars=max_chars)
         if not re.fullmatch(r"_?\d+(?:_\d+)?", course_id):
             raise BBError("请使用课程列表中的有效 course_id。")
         return self.read_page(f"/webapps/blackboard/execute/announcement?method=search&context=course_entry&course_id={course_id}&handle=announcements_entry&mode=view", max_chars=max_chars)

@@ -11,10 +11,13 @@ from ..workflow_store import require
 from .client import JWClient, validate_id
 from .parsing import lesson_row
 from .session import BASE_URL, JWError
+from . import native
 
 
 def schedule_slots(text, campus=''):
     """Fail closed for unfamiliar schedule text; Java Calendar Sunday=1."""
+    if native.enabled():
+        return native.call('schedule_slots', text=text, campus=campus or '')
     slots = []
     for line in text.splitlines():
         match = re.fullmatch(r'\s*([\d,~\-]+)周\s+.*?[:：]\s*([1-7])\(([\d,]+)\)(?:\s+.*)?', line)
@@ -49,6 +52,12 @@ class AcademicClient:
         require((method == 'GET' and (entry or search)) or (method == 'POST' and turns), '未适配的教务请求。')
         allowed = {'courseNameZhLike', 'courseCodeLike', 'teacherNameLike', 'queryPage__'} if search else {'studentId', 'bizTypeId'} if turns else set()
         require(set(params or {}) <= allowed, '未适配的教务查询参数。')
+        if native.enabled(self.jw):
+            from ..authenticated_native import request
+            response = request('jw', path, self.jw.cookies, self.jw.user_agent, JWError, params=params, method=method)
+            if 'text/html' in response.headers.get('content-type', '').lower():
+                native.body('validate_response', response)
+            return response
         cookies = httpx.Cookies()
         for c in self.jw.cookies:
             cookies.set(c['name'], c['value'], domain=c['domain'], path=c.get('path', '/'))
@@ -71,6 +80,10 @@ class AcademicClient:
         require(semester_id > 0 and isinstance(keyword,str) and 1 <= len(keyword.strip()) <= 100, '提供实时学期ID及1–100字课程关键词。')
         require(type(page) is int and 1 <= page <= 100 and type(limit) is int and 1 <= limit <= 50, '页码1–100，每页1–50。')
         response = self.request('/for-std/lesson-search')
+        if native.enabled(self.jw):
+            selection = native.body('offerings_context', response, semester_id=semester_id, keyword=keyword, page=page, limit=limit)
+            raw = native.body('json', self.request(selection['path'], selection['params']))
+            return native.call('offerings', data=raw, semester_id=semester_id, page=page, limit=limit)
         soup = BeautifulSoup(response.text, 'html.parser')
         require(any(o.get('value') == str(semester_id) for o in soup.select('#semester option')), '学期不在全校开课查询范围。')
         # This mapping is checked before interpreting the numeric weekdays.
@@ -97,6 +110,10 @@ class AcademicClient:
 
     def window(self):
         response = self.request('/for-std/course-select')
+        if native.enabled(self.jw):
+            params = native.body('window_context', response)
+            turns = native.body('json', self.request('/ws/for-std/course-select/open-turns', params, method='POST'))
+            return native.call('window', data=turns)
         student = re.search(r'studentId:\s*(\d+)', response.text)
         biz = re.search(r'bizTypeId:\s*(\d+)', response.text)
         require(student and biz and 'fetchOpenTurns' in response.text, '选课入口结构已变化。')
@@ -108,6 +125,14 @@ class AcademicClient:
 
     def planning_context(self, semester_id):
         context,data=self.jw.course_data(semester_id)
+        if native.enabled(self.jw):
+            result = native.call('planning_context', context=context, data=data)
+            if result.get('state') == 'needs_input':
+                from ..input_guidance import attach, field
+                return attach(result, 'school_jw_planning_context',
+                              [field('/semester_id','官方课程学分缺失，需核实后重查','原学期ID；学分须来自官方数据，不能猜填',source='official_data')],
+                              ['semester_id'], {'semester_id':semester_id})
+            return result
         candidates=[]
         for item in data['lessons']:
             row=lesson_row(item)
@@ -126,8 +151,11 @@ class AcademicClient:
     def prepare_change(self, action, semester_id, lesson_id):
         require(action in {'select','drop'}, 'action 只能 select 或 drop；放弃成绩/修读不属于本工具。')
         validate_id(lesson_id, 'lesson_id')
+        validate_id(semester_id, 'semester_id')
         require(lesson_id > 0 and semester_id > 0, '需实时结果中的学期和课堂ID。')
         courses = self.jw.courses(semester_id)
+        if native.enabled(self.jw):
+            return native.call('prepare_change', change_action=action, lesson_id=lesson_id, courses=courses, window=self.window())
         selected = [r for r in courses['courses'] if r['lesson_id'] == lesson_id]
         window = self.window()
         missing = []

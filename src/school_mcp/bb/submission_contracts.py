@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 from .assignment_review import parse_review
 from .parsing import safe_url, soup_of
 from .session import BBError
+from . import native
 
 CHINA = timezone(timedelta(hours=8))
 
@@ -19,6 +20,8 @@ def require(condition, message='作业页面与已验证模板不一致，已停
 
 
 def deadline(text):
+    if native.enabled():
+        return native.call('deadline', text=text)
     match = re.search(r'(20\d{2})年\s*(\d{1,2})月\s*(\d{1,2})日(?:\s*星期\S)?\s*(上午|下午)?\s*(\d{1,2})[:：](\d{2})', text)
     if not match:
         return None
@@ -35,6 +38,8 @@ def deadline(text):
 
 
 def validate_download(url, assignment, attempt_id=None):
+    if native.enabled():
+        return tuple(native.call('download', url=url, assignment=assignment, attempt_id=attempt_id))
     target = safe_url(url)
     p = urlsplit(target)
     q = parse_qs(p.query, keep_blank_values=True)
@@ -49,6 +54,8 @@ def validate_download(url, assignment, attempt_id=None):
 
 
 def form_contract(html, assignment):
+    if native.enabled():
+        return native.call('form', html=html, assignment=assignment)
     s = soup_of(html)
     f = s.select_one('#uploadAssignmentFormId')
     require(f is not None, '尚未识别支持的个人作业上传表单。')
@@ -72,6 +79,8 @@ def form_contract(html, assignment):
 
 
 def snapshot(html, assignment):
+    if native.enabled():
+        return native.call('snapshot', html=html, assignment=assignment)
     s = soup_of(html)
     review = parse_review(html, include_attachment_names=True)
     if review['page_kind'] == 'submission_history':

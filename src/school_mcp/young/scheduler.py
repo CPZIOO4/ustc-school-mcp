@@ -14,6 +14,7 @@ from xml.sax.saxutils import escape
 
 from ..mail.config import local_dir
 from .registration import Jobs, load_session, require, stamp, YoungError
+from . import native
 
 
 def valid_id(identifier):
@@ -85,12 +86,19 @@ $t=Get-ScheduledTask -TaskName '{name}'; $i=$t | Get-ScheduledTaskInfo;
 
 def install_schedule(monitor_from,opens_at, *, job_id=None,schedule_id=None):
     start=stamp(monitor_from);due=stamp(opens_at)
-    require(start<=due and start>datetime.now(timezone.utc),'监控启动时间须在未来且不晚于报名开放时间。')
+    if native.enabled():
+        native.policy('schedule', monitor_from=monitor_from, opens_at=opens_at, now=datetime.now(timezone.utc).isoformat())
+    else:
+        require(start<=due and start>datetime.now(timezone.utc),'监控启动时间须在未来且不晚于报名开放时间。')
     identifier=valid_id(schedule_id) if schedule_id else uuid.uuid4().hex
     old=read_spec(identifier) if schedule_id else None
     require(old is None or not old.get('job_id') or old['job_id']==job_id,'不能将已有脚本计划改绑到另一个报名任务。')
     spec=dict(schedule_id=identifier,monitor_from=start.isoformat(),opens_at=due.isoformat(),job_id=job_id,
               worker_state='scheduled' if job_id else 'needs_exact_name',cancelled=False)
+    if native.enabled():
+        spec['native_runtime']=native.runtime_spec()
+    elif old and old.get('native_runtime'):
+        spec['native_runtime']=old['native_runtime']
     if old and old.get('scheduler')=='background-python' and inspect_schedule(identifier)['process_running']:
         require(old['monitor_from']==spec['monitor_from'] and old['opens_at']==spec['opens_at'],'已运行的等待进程不能改动时刻；请先取消后重建。')
         write_spec(identifier,{**old,**spec})

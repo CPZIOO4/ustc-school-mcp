@@ -1,7 +1,7 @@
 """Scheduled, account-bound, single-attempt registrations using headless Chrome.
 
-Scheduling is external (for example a Codex thread heartbeat). This module never
-starts a hidden recurring service. Unknown write outcomes permanently stop replay.
+The system-scheduled worker drives browser IO. The native path uses Rust for
+parsing, eligibility, receipts and durable state. Unknown outcomes stop replay.
 """
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ from ..browser import chrome_browser
 from ..mail.config import local_dir
 from ..mail.credentials import _dpapi
 from .session import HOME, HOST, ORIGIN, YoungError, load_session
+from . import native
 
 CN = timezone(timedelta(hours=8))
 BASE = ORIGIN + '/login/wisdom-group-learning-bg'
@@ -62,10 +63,14 @@ def clean_name(value):
 
 
 def normalize_title(value):
+    if native.enabled():
+        return native.policy('normalize', value=str(value))
     return ''.join(c for c in unicodedata.normalize('NFKC',str(value)).casefold() if c.isalnum())
 
 
 def validate_keywords(values):
+    if native.enabled():
+        return native.policy('keywords', values=values)
     require(isinstance(values,list) and 2<=len(values)<=8,'模糊匹配需要2–8个明确关键词。')
     require(all(isinstance(v,str) and 2<=len(normalize_title(v))<=80 for v in values),'关键词必须包含2–80个有效字符。')
     normalized=[normalize_title(v) for v in values]
@@ -74,6 +79,8 @@ def validate_keywords(values):
 
 
 def matches_name(detail,job):
+    if native.enabled():
+        return native.policy('matches', detail=detail, job=job)
     name=detail.get('itemName') or ''
     if job.get('resolved_name') and name!=job['resolved_name']:return False
     if job.get('exact_name'):return name==job['exact_name']
@@ -90,6 +97,8 @@ class AmbiguousMatch(YoungError):
 
 
 def summary(d):
+    if native.enabled():
+        return native.parse('summary', detail=d)
     keys = ('id', 'itemName', 'applySt', 'applyEt', 'st', 'et', 'itemCategory',
             'form', 'formName', 'serviceHour', 'peopleNum', 'applyNum',
             'booleanRegistration', 'needSignInfo', 'signInfo', 'onlineStatus', 'marathon')
@@ -97,6 +106,8 @@ def summary(d):
 
 
 def check_candidate(detail, job, now):
+    if native.enabled():
+        return native.policy('eligible', detail=detail, job=job, now=now.isoformat())
     require(matches_name(detail,job), '项目名称不符合授权筛选条件。')
     require(not job.get('item_id') or detail.get('id') == job['item_id'], '项目标识不一致。')
     require(school_time(detail.get('applySt')) == stamp(job['opens_at']), '平台报名开始时间与授权时间不一致。')
@@ -120,13 +131,23 @@ class Jobs:
         self.account = hashlib.sha256(account.encode()).hexdigest()
         self.path = (directory or local_dir()) / 'young-registrations.sqlite3'
 
+    def _native(self, action, **values):
+        return native.call('young_job', action=action, database=str(self.path.resolve()),
+                           account=self.account, **values)
+
     @contextmanager
-    def db(self):
+    def db(self, *, native_read=False):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         con = sqlite3.connect(self.path, timeout=10)
         try:
-            con.execute('CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, account TEXT, target TEXT, state TEXT, payload BLOB, result BLOB)')
             con.execute('BEGIN IMMEDIATE')
+            migrated=con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='young_submission_gates'").fetchone() is not None
+            require(not migrated or native_read, '报名记录已迁移到原生核心；请使用已配置原生核心的应用，禁止兼容路径写入。')
+            if migrated:
+                con.execute('PRAGMA query_only=ON')
+                yield con
+                return
+            con.execute('CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, account TEXT, target TEXT, state TEXT, payload BLOB, result BLOB)')
             yield con
             con.commit()
         finally:
@@ -134,6 +155,11 @@ class Jobs:
 
     def create(self, name, opens_at, *, item_id=None, authorized=False, allow_non_cancellable=False,
                monitor_from=None, poll_seconds=10, stop_at=None, name_keywords=None):
+        if native.enabled():
+            return self._native('create', exact_name=name, opens_at=opens_at, item_id=item_id,
+                authorized=authorized, allow_non_cancellable=allow_non_cancellable,
+                monitor_from=monitor_from, poll_seconds=poll_seconds, stop_at=stop_at,
+                name_keywords=name_keywords, now=datetime.now(timezone.utc).isoformat())
         require(authorized is True, '只有用户明确授权该项目的定时报名后才能创建执行任务。')
         if name is not None:
             name=clean_name(name)
@@ -173,11 +199,15 @@ class Jobs:
                     note='监控任务由系统计划任务启动脚本；状态及结果由本地程序记录。')
 
     def view(self, identifier):
-        with self.db() as db:
+        if native.enabled():
+            return self._native('view', job_id=identifier)
+        with self.db(native_read=True) as db:
             return self._view(db,identifier)
 
     def claim(self, identifier, now=None):
         now = now or datetime.now(timezone.utc)
+        if native.enabled():
+            return self._native('claim', job_id=identifier, now=now.isoformat())
         with self.db() as db:
             view = self._view(db,identifier)
             if view['state']!='scheduled' or now<stamp(view['opens_at']):
@@ -189,6 +219,8 @@ class Jobs:
             return True
 
     def transition(self, identifier, expected, state, result=None):
+        if native.enabled():
+            return self._native('transition', job_id=identifier, expected=expected, state=state, result=result)
         with self.db() as db:
             self._row(db,identifier)
             changed=db.execute('UPDATE jobs SET state=?, result=? WHERE id=? AND account=? AND state=?',
@@ -196,6 +228,8 @@ class Jobs:
             require(changed==1, '任务状态已变化；不能重复执行。')
 
     def cancel(self, identifier):
+        if native.enabled():
+            return self._native('cancel', job_id=identifier)
         state=self.view(identifier)['state']
         require(state in {'scheduled','monitoring','checking'},'已提交或结果不明的报名不能通过取消监控任务撤回。')
         self.transition(identifier,state,'cancelled')
@@ -203,6 +237,8 @@ class Jobs:
 
     def claim_monitor(self,identifier,now=None):
         now=now or datetime.now(timezone.utc)
+        if native.enabled():
+            return self._native('claim_monitor', job_id=identifier, now=now.isoformat())
         with self.db() as db:
             view=self._view(db,identifier)
             if view['state']!='scheduled' or now<stamp(view.get('monitor_from') or view['opens_at']):return False
@@ -212,6 +248,8 @@ class Jobs:
             return True
 
     def progress(self,identifier,result):
+        if native.enabled():
+            return self._native('progress', job_id=identifier, result=result)
         with self.db() as db:
             self._row(db,identifier)
             db.execute("UPDATE jobs SET result=? WHERE id=? AND account=? AND state='monitoring'",(_dpapi(json.dumps(result,ensure_ascii=False).encode()),identifier,self.account))
@@ -307,9 +345,12 @@ class RegistrationBrowser:
             if self.policy_error:raise self.policy_error
             require(self.error is None,self.error or '')
             data=response.json()
-            require(isinstance(data,dict) and data.get('success') is True,'活动列表读取失败，不能视为空结果。')
-            result=data.get('result') or {};batch=result.get('records')
-            require(isinstance(batch,list),'活动列表格式变化。')
+            if native.enabled():
+                batch=native.parse('list', data=data)
+            else:
+                require(isinstance(data,dict) and data.get('success') is True,'活动列表读取失败，不能视为空结果。')
+                result=data.get('result') or {};batch=result.get('records')
+                require(isinstance(batch,list),'活动列表格式变化。')
             ids=tuple(r.get('id') for r in batch)
             require(not batch or ids not in seen,'分页没有前进，停止查找。')
             seen.add(ids);records.extend({**row, 'source_page': _ + 1} for row in batch)
@@ -330,10 +371,13 @@ class RegistrationBrowser:
                 raise self.policy_error
             require(self.error is None, self.error or '')
             data = response.json()
-            require(isinstance(data, dict) and data.get('success') is True, '活动列表读取失败，不能视为空结果。')
-            result = data.get('result') or {}
-            batch = result.get('records')
-            require(isinstance(batch, list), '活动列表格式变化。')
+            if native.enabled():
+                batch = native.parse('list', data=data)
+            else:
+                require(isinstance(data, dict) and data.get('success') is True, '活动列表读取失败，不能视为空结果。')
+                result = data.get('result') or {}
+                batch = result.get('records')
+                require(isinstance(batch, list), '活动列表格式变化。')
             ids = tuple(r.get('id') for r in batch)
             require(not batch or ids not in seen, '分页没有前进，停止查询。')
             seen.add(ids)
@@ -358,6 +402,8 @@ class RegistrationBrowser:
         network.limiter.response('young',r.status,r.headers)
         require(r.status==200,'活动详情读取失败。')
         d=r.json()
+        if native.enabled():
+            return native.parse('detail', data=d, item_id=item_id)
         require(isinstance(d,dict) and d.get('success') is True and isinstance(d.get('result'),dict),'活动详情无有效数据。')
         require(d['result'].get('id')==item_id,'活动详情标识不一致。')
         return d['result']
@@ -370,6 +416,8 @@ class RegistrationBrowser:
         network.limiter.response('young', response.status, response.headers)
         require(response.status == 200, '系列场次读取失败。')
         data = response.json()
+        if native.enabled():
+            return native.parse('children', data=data)
         require(isinstance(data, dict) and data.get('success') is True
                 and isinstance(data.get('result'), list), '系列场次格式变化。')
         rows = data['result']
@@ -379,11 +427,17 @@ class RegistrationBrowser:
 
     def locate(self, job, *, allow_missing=False):
         records=self.listing(job.get('exact_name') or job['name_keywords'][0])
-        matches=[r for r in records if matches_name(r,job) and (not job.get('item_id') or r.get('id')==job['item_id'])]
-        # Resolve times from authoritative details, rather than guessing which
-        # similar title the user meant or relying on list ordering.
-        if not job.get('exact_name'):
-            matches=[d for row in matches if school_time((d:=self.detail(row['id'])).get('applySt'))==stamp(job['opens_at']) and matches_name(d,job)]
+        if native.enabled():
+            matches=native.policy('candidates', records=records, job=job)['candidates']
+            if not job.get('exact_name'):
+                matches=[self.detail(row['id']) for row in matches]
+            selection=native.policy('locate', records=matches, job=job)
+            matches=selection['candidates']
+        else:
+            matches=[r for r in records if matches_name(r,job) and (not job.get('item_id') or r.get('id')==job['item_id'])]
+            # Resolve times from authoritative details, not title/list order.
+            if not job.get('exact_name'):
+                matches=[d for row in matches if school_time((d:=self.detail(row['id'])).get('applySt'))==stamp(job['opens_at']) and matches_name(d,job)]
         if not matches and allow_missing:return None
         if len(matches)>1:raise AmbiguousMatch(matches)
         require(len(matches)==1,'未找到唯一的指定活动；不提交报名。')
@@ -399,6 +453,10 @@ class RegistrationBrowser:
             if title.count()==1:
                 with p.expect_response(lambda r:urlsplit(r.url).path.endswith(DETAIL),timeout=20000) as opened:title.click()
                 d=opened.value.json()
+                if native.enabled():
+                    detail=native.parse('detail', data=d, item_id=item_id)
+                    self.page.locator('.ant-modal:visible').wait_for()
+                    return detail
                 require(d.get('success') is True and d.get('result',{}).get('id')==item_id,'页面活动与目标不一致。')
                 self.page.locator('.ant-modal:visible').wait_for()
                 return d['result']
@@ -447,6 +505,11 @@ def status_job(job_id, verify=False):
         with RegistrationBrowser(s).open() as browser:
             browser.start_listing()
             after=browser.detail(item_id)
+            if native.enabled():
+                receipt=native.policy('receipt', detail=after, job=job, item_id=item_id, response={})
+                if receipt['state']=='verified':
+                    store.transition(job_id,job['state'],'verified',receipt['result'])
+                return store.view(job_id)
             require(matches_name(after,job),'核验名称不一致。')
             if str(after.get('booleanRegistration'))=='1':
                 store.transition(job_id,job['state'],'verified',dict(item=summary(after),registration_verified=True,credit_hours_awarded=False))
@@ -484,6 +547,8 @@ def list_projects(page=1):
 
 
 def project_view(detail):
+    if native.enabled():
+        return native.parse('project', detail=detail)
     output = summary(detail)
     for key in ('moduleName', 'itemCategoryName', 'businessDeptName', 'applyRange', 'rangeDeptName',
                 'njName', 'formName', 'placeInfo', 'applyWay', 'teamSize', 'applyStatus',
@@ -536,12 +601,19 @@ def run_job(job_id):
                 return store.view(job_id)
             def before_write():
                 now=datetime.now(timezone.utc)
-                require(stamp(job['opens_at'])<=now and (not job['expires_at'] or now<=stamp(job['expires_at'])),'定时执行窗口已过，停止提交。')
-                require(now<=school_time(detail['applyEt']),'活动报名已经截止。')
+                if native.enabled():
+                    native.policy('before_write', detail=detail, job=job, now=now.isoformat())
+                else:
+                    require(stamp(job['opens_at'])<=now and (not job['expires_at'] or now<=stamp(job['expires_at'])),'定时执行窗口已过，停止提交。')
+                    require(now<=school_time(detail['applyEt']),'活动报名已经截止。')
                 store.transition(job_id,'checking','submitting',dict(item_id=detail['id']))
             result=browser.submit(detail['id'],before_write)
             # Independently query this account's registration flag even for an error response.
             after=browser.detail(detail['id'])
+            if native.enabled():
+                receipt=native.policy('receipt', detail=after, job=job, item_id=detail['id'], response=result)
+                store.transition(job_id,'submitting',receipt['state'],receipt['result'])
+                return store.view(job_id)
             verified=str(after.get('booleanRegistration'))=='1'
             store.transition(job_id,'submitting','verified' if verified else 'uncertain',
                              dict(item=summary(after),response_success=result.get('success') is True,

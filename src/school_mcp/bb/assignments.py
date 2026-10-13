@@ -13,6 +13,7 @@ from .client import BBClient
 from .parsing import normalize_link, safe_url, soup_of
 from .session import BBError
 from .identity import _save, load_credentials
+from . import native
 
 ASSIGNMENT_PATH = '/webapps/assignment/uploadAssignment'
 CONTENT_PATHS = {'/webapps/blackboard/content/listContent.jsp', '/webapps/blackboard/content/launchLink.jsp'}
@@ -24,6 +25,8 @@ def _in_course(url, course_id):
 
 
 def parse_assignments(html, course_id):
+    if native.enabled():
+        return native.call('assignments', html=html, course_id=course_id)
     soup = soup_of(html)
     result, seen = [], set()
     for anchor in soup.select('a[href]'):
@@ -58,6 +61,15 @@ def catalog(course_id, *, max_pages=5, limit=20, client=None):
         raise BBError('请使用有效课程ID，max_pages为1–15、limit为1–50。')
     client = client or BBClient()
     entry = client.course_page(course_id, max_chars=1)
+    if native.enabled():
+        step = native.call('catalog_step', course_id=course_id, max_pages=max_pages, limit=limit,
+                           entry=entry, state=None)
+        while not step['done']:
+            path = step['next_path']
+            response = client.get(path)
+            step = native.call('catalog_step', course_id=course_id, max_pages=max_pages, limit=limit,
+                               state=step['state'], path=path, html=response.text)
+        return step['result']
     queue = [l['path'] for l in entry['links'] if l.get('course_menu') and l.get('internal')
              and l.get('path') and urlsplit(l['path']).path in CONTENT_PATHS
              and _in_course(l['path'], course_id)

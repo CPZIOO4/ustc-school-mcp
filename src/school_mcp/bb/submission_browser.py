@@ -15,6 +15,7 @@ from .assignment_review import review_url
 from .parsing import login_page, soup_of
 from .session import BBError, load_session
 from .submission_contracts import form_contract, require, snapshot, validate_download
+from . import native
 
 
 def check_multipart(body, content_type, plan):
@@ -31,6 +32,9 @@ def check_multipart(body, content_type, plan):
             files.append(part.get_filename())
         else:
             fields.setdefault(key, []).append(data.decode('utf-8'))
+    if native.enabled():
+        native.call('multipart', fields=fields, files=files, plan=plan)
+        return
     a = plan['assignment']
     require(fields.get('course_id') == [a['course_id']] and fields.get('content_id') == [a['content_id']])
     require(fields.get('dispatch') == ['submit'] and fields.get('attempt_id') == ['']
@@ -44,6 +48,8 @@ def check_multipart(body, content_type, plan):
 
 
 def static_request(url, method):
+    if native.enabled():
+        return native.call('static_request', url=url, method=method)
     p = urlsplit(url)
     return (method == 'GET' and p.scheme == 'https' and p.hostname == 'www.bb.ustc.edu.cn'
             and p.port in (None, 443) and not p.username and not p.password

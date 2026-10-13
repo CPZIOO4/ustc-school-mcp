@@ -79,6 +79,9 @@ def generate(candidates: list[Candidate], constraints: Constraints):
 
 
 def _generate(candidates: list[Candidate], constraints: Constraints):
+    from . import native
+    if native.enabled():
+        return native.call('plan', candidates=[c.model_dump() for c in candidates], constraints=constraints.model_dump())
     if len(candidates) > 25 or len({c.lesson_id for c in candidates}) != len(candidates):
         return dict(state='needs_input', missing_fields=['unique_candidates_max_25'], next_action='narrow_candidates', plans=[])
     if len({c.semester_id for c in candidates if c.semester_id is not None}) > 1:

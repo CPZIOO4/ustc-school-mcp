@@ -18,6 +18,7 @@ from .identity import load_credentials
 from .session import BBError, load_session
 from .submission_browser import SubmissionBrowser
 from .submission_contracts import baseline, file_record, require
+from . import native
 
 
 def digest(value):
@@ -144,6 +145,9 @@ def prepare_submission(course_id, content_id, files=None, comment='', *, reuse_p
     assignment = locate(course_id, content_id)
     with browser_factory() as browser:
         current, _, _ = browser.view(assignment)
+        if native.enabled():
+            native.call('prepare_check', current=current, files=files or [], comment=comment,
+                        reuse_previous_files=reuse_previous_files, resubmit=resubmit)
         require((current['kind'] == 'history') == resubmit, '已有提交请明确选择resubmit；首次提交不能使用重交模式。')
         require(not resubmit or current['new_url'], '作业没有提供重新提交入口。')
         require(not reuse_previous_files or resubmit, '复用原附件需要已有提交。')
@@ -165,6 +169,8 @@ def verify_files(browser, plan, current):
     require(len(current['files']) == len(expected), '新记录附件数量不匹配，结果待核实。')
     actual = [file_record(f['filename'], browser.download(f['url'], plan['assignment'], current['attempt_id']))
               for f in current['files']]
+    if native.enabled():
+        return native.call('receipt', plan=plan, current=current, actual=actual)
     require(sorted(actual, key=lambda f: f['filename']) == sorted(expected, key=lambda f: f['filename']),
             '新记录附件与准备材料不一致，结果待核实。')
     return {'verified': True, 'new_attempt_id': current['attempt_id'], 'submitted_at_text': current['attempt_time_text'],
@@ -184,6 +190,8 @@ def submission_status(identifier, *, verify=False, browser_factory=SubmissionBro
             job = store.get(identifier)
         except Exception:
             pass  # Never turn a verification failure into a repeat write.
+    if native.enabled():
+        return native.call('status', identifier=identifier, job=job, now=now().isoformat())
     due = plan['baseline']['due_at']
     late = now() > datetime.fromisoformat(due) if due else None
     return {'preparation_id': identifier, 'content_sha256': plan['sha256'], 'state': job['state'], 'phase': job['phase'],
@@ -215,9 +223,13 @@ def submit_assignment(identifier, expected_sha256, *, browser_factory=Submission
         require(current_assignment == plan['assignment'], '作业要求或入口已改变，请重新准备。')
         with browser_factory() as browser:
             current, content, target = browser.view(plan['assignment'])
-            require(baseline(current) == plan['baseline'], '已有提交或截止条件发生变化，请重新准备。')
-            require(current['due_at'], '无法确定截止时间，暂不自动提交。')
-            require(plan['allow_late'] or now() <= datetime.fromisoformat(current['due_at']), '作业已逾期，需要在用户知情下重新准备并允许迟交。')
+            if native.enabled():
+                native.call('preflight', plan=plan, current=current, assignment=current_assignment,
+                            session_binding=session_binding(), now=now().isoformat())
+            else:
+                require(baseline(current) == plan['baseline'], '已有提交或截止条件发生变化，请重新准备。')
+                require(current['due_at'], '无法确定截止时间，暂不自动提交。')
+                require(plan['allow_late'] or now() <= datetime.fromisoformat(current['due_at']), '作业已逾期，需要在用户知情下重新准备并允许迟交。')
             browser.send(plan, current, content, target, lambda phase: store.advance(identifier, phase))
             require(store.get(identifier)['phase'] == 'submit_requested', '未记录最终提交请求，不确认提交成功。')
             current, _, _ = browser.view(plan['assignment'])
