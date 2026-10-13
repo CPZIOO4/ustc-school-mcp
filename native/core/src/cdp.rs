@@ -62,6 +62,9 @@ pub struct Page {
     guard: Guard,
     policy_error: Option<Error>,
     bootstrap: Option<String>,
+    login_mode: bool,
+    login_contexts: HashMap<i64, String>,
+    login_accounts: Vec<String>,
 }
 impl Page {
     pub async fn launch(
@@ -137,6 +140,9 @@ impl Page {
             guard,
             policy_error: None,
             bootstrap: None,
+            login_mode: false,
+            login_contexts: HashMap::new(),
+            login_accounts: Vec::new(),
         };
         page.context = page.command(
             "Target.createBrowserContext",
@@ -254,7 +260,10 @@ impl Page {
         self.next_id += 1;
         let mut request = json!({"id":self.next_id,"method":method,"params":params});
         if !self.session.is_empty()
-            && (page_scope || (!method.starts_with("Target.") && !method.starts_with("Browser.")))
+            && (page_scope
+                || (!method.starts_with("Target.")
+                    && !method.starts_with("Browser.")
+                    && method != "Storage.getCookies"))
         {
             request["sessionId"] = json!(self.session);
         }
@@ -370,6 +379,74 @@ impl Page {
         }
         let method = value["method"].as_str().unwrap_or("");
         let params = &value["params"];
+        if self.login_mode && method == "Network.responseReceived" {
+            let status = params["response"]["status"].as_u64().unwrap_or(0);
+            if status == 429
+                || (status >= 500
+                    && matches!(params["type"].as_str(), Some("Document" | "XHR" | "Fetch")))
+            {
+                let code = if status == 429 {
+                    "rate_limited"
+                } else {
+                    "network_unavailable"
+                };
+                self.policy_error = Some(Error::new(
+                    code,
+                    "认证站点暂时限制访问或服务异常，已停止重试；已有会话保留。",
+                ));
+                return Err(Error::new(
+                    code,
+                    "认证站点暂时限制访问或服务异常，已停止重试；已有会话保留。",
+                ));
+            }
+        }
+        if self.login_mode
+            && method == "Runtime.executionContextCreated"
+            && params["context"]["auxData"]["isDefault"] == true
+        {
+            if let (Some(id), Some(origin)) = (
+                params["context"]["id"].as_i64(),
+                params["context"]["origin"].as_str(),
+            ) {
+                self.login_contexts.insert(id, origin.to_owned());
+            }
+        }
+        if self.login_mode && method == "Runtime.executionContextDestroyed" {
+            if let Some(id) = params["executionContextId"].as_i64() {
+                self.login_contexts.remove(&id);
+            }
+        }
+        if self.login_mode && method == "Runtime.executionContextsCleared" {
+            self.login_contexts.clear();
+        }
+        if self.login_mode
+            && method == "Runtime.bindingCalled"
+            && params["name"] == "schoolLoginAccount"
+        {
+            let origin = params["executionContextId"]
+                .as_i64()
+                .and_then(|id| self.login_contexts.get(&id));
+            if origin.is_some_and(|s| {
+                matches!(
+                    s.as_str(),
+                    "https://id.ustc.edu.cn" | "https://passport.ustc.edu.cn"
+                )
+            }) {
+                if let Some(account) = params["payload"].as_str().filter(|s| {
+                    !s.is_empty()
+                        && s.len() <= 100
+                        && s.bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b"_.@-".contains(&b))
+                }) {
+                    if self.login_accounts.last().is_none_or(|v| v != account) {
+                        if self.login_accounts.len() >= 1024 {
+                            return Err(failed());
+                        }
+                        self.login_accounts.push(account.to_owned());
+                    }
+                }
+            }
+        }
         if let Some(session) = value["sessionId"]
             .as_str()
             .filter(|id| self.child_sessions.contains(*id) && method != "Target.attachedToTarget")
@@ -441,7 +518,7 @@ impl Page {
             }
             _ => {}
         }
-        if method == "Network.requestWillBeSent" {
+        if method == "Network.requestWillBeSent" && !self.login_mode {
             if self.requests.len() >= MAX_EVENTS {
                 return Err(failed());
             }
@@ -456,9 +533,13 @@ impl Page {
                 self.requests.insert(id.into(), params["request"].clone());
             }
         }
-        if method.starts_with("Network.")
-            || method.starts_with("Page.")
-            || method == "Target.attachedToTarget"
+        // Login request bodies can contain the password the user types in Chrome.
+        // Never retain them, request headers, response headers, or network traces.
+        if (!self.login_mode
+            && (method.starts_with("Network.")
+                || method.starts_with("Page.")
+                || method == "Target.attachedToTarget"))
+            || method == "Page.lifecycleEvent"
         {
             if self.events.len() >= MAX_EVENTS {
                 return Err(failed());
@@ -557,6 +638,59 @@ impl Page {
     }
     pub fn cookies(&mut self) -> Result<Value> {
         Ok(self.command("Network.getCookies", json!({}))?["cookies"].clone())
+    }
+    /// Internal official-login profile: no request/response capture, only a
+    /// narrowly scoped account binding. The default business profile is unchanged.
+    pub fn enable_login(&mut self) -> Result<()> {
+        self.login_mode = true;
+        self.clear_responses();
+        self.command("Runtime.addBinding", json!({"name":"schoolLoginAccount"}))?;
+        self.command(
+            "Page.addScriptToEvaluateOnNewDocument",
+            json!({"source":include_str!("login_capture.js")}),
+        )?;
+        Ok(())
+    }
+    pub fn take_login_accounts(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.login_accounts)
+    }
+    /// Snapshot only adapter-selected origins using locally fulfilled documents.
+    /// No origin capture navigates to its network or invokes website JavaScript.
+    pub fn storage_state(&mut self, origins: &[String]) -> Result<Value> {
+        if origins.len() > 100 {
+            return Err(Error::invalid());
+        }
+        let cookies = self.command(
+            "Storage.getCookies",
+            json!({"browserContextId":self.context}),
+        )?["cookies"]
+            .clone();
+        let mut saved = Vec::new();
+        for origin in origins {
+            let parsed = url::Url::parse(origin).map_err(|_| Error::invalid())?;
+            if !matches!(parsed.scheme(), "http" | "https")
+                || parsed.path() != "/"
+                || parsed.query().is_some()
+                || parsed.fragment().is_some()
+                || !parsed.username().is_empty()
+                || parsed.password().is_some()
+            {
+                return Err(Error::invalid());
+            }
+            self.bootstrap = Some(parsed.to_string());
+            self.navigate(parsed.as_str())?;
+            let value = self.evaluate(include_str!("cdp_capture.js"))?;
+            if !value["localStorage"]
+                .as_array()
+                .is_some_and(|v| v.is_empty())
+                || !value["indexedDB"].as_array().is_some_and(|v| v.is_empty())
+            {
+                saved.push(value);
+            }
+            self.bootstrap = None;
+            self.clear_responses();
+        }
+        Ok(json!({"cookies":cookies,"origins":saved}))
     }
     pub fn clear_responses(&mut self) {
         self.events.clear();

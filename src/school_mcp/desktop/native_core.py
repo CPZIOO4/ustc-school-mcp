@@ -40,7 +40,7 @@ class Worker:
 
 
 # Slow provider requests must not block local storage, status, or task recovery.
-_workers = {name: Worker() for name in ('network', 'public', 'authenticated', 'browser', 'bb_io', 'young_io', 'local')}
+_workers = {name: Worker() for name in ('network', 'public', 'authenticated', 'browser', 'bb_io', 'young_io', 'login', 'local')}
 
 
 def enabled():
@@ -75,6 +75,7 @@ def call(operation, value):
                operation if operation in {'bb_io', 'young_io'} else
                'public' if operation == 'public_read' else
                'authenticated' if operation == 'authenticated_read' else
+               'login' if operation.startswith('login_') else
                'browser' if operation.startswith('browser_') else 'local')
     worker = _workers[channel]
     with worker.lock:

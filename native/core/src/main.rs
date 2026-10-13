@@ -1,4 +1,4 @@
-//! Length-prefixed private pipes only. No listening TCP port or plaintext logs.
+//! Private RPC, owned desktop loopback service and fixed scheduled worker entry.
 #![cfg_attr(windows, windows_subsystem = "windows")]
 use school_core::{Core, Error};
 use serde_json::json;
@@ -7,6 +7,24 @@ use std::io::{self, Read, Write};
 fn main() {
     // Explicit invocation only; no secrets or user data in process arguments.
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    if arguments.len() == 4 && arguments[..3] == ["--desktop", "--native-stdio", "--data-dir"] {
+        let root = std::path::Path::new(&arguments[3]);
+        let result = school_core::legacy::Bridge::new(root).and_then(|bridge| {
+            use school_core::chat_io::Legacy;
+            let bridge = std::sync::Arc::new(bridge);
+            let result = school_core::desktop::run(root, true, bridge.clone());
+            if result.is_err() && root.join("school-desktop.json").is_file() {
+                let _ = bridge.call(
+                    "diagnostics_record",
+                    json!({"code":"startup_failed","stage":"startup","outcome":"not_started"}),
+                    &std::sync::atomic::AtomicBool::new(false),
+                    &|_, _| {},
+                );
+            }
+            result
+        });
+        std::process::exit(if result.is_ok() { 0 } else { 1 });
+    }
     let scheduled = arguments.len() == 5
         && arguments[0] == "--young-worker"
         && arguments[1] == "--schedule-id"

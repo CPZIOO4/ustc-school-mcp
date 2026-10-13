@@ -1,4 +1,4 @@
-//! Native business core. No UI or Python runtime dependency; secrets stay on private pipes.
+//! Native application core; remaining business adapters use fixed private pipes.
 pub mod agent;
 pub mod app_io;
 pub mod auth_http;
@@ -7,9 +7,14 @@ pub mod bb_io;
 pub mod browser;
 pub mod catalog;
 pub mod cdp;
+pub mod chat_io;
 pub mod context;
+pub mod desktop;
 pub mod finance;
 pub mod jw;
+pub mod legacy;
+pub mod login;
+pub mod login_jobs;
 pub mod model;
 pub mod network;
 pub mod public_sites;
@@ -47,6 +52,7 @@ pub struct Core {
     public: network::Client,
     authenticated: auth_http::Client,
     browser: browser::Manager,
+    login: login_jobs::Manager,
 }
 impl Core {
     pub fn new() -> Result<Self> {
@@ -55,6 +61,7 @@ impl Core {
             public: network::Client::new()?,
             authenticated: auth_http::Client::new()?,
             browser: browser::Manager::new(),
+            login: login_jobs::Manager::default(),
         })
     }
     pub async fn dispatch(&self, request: Value) -> Result<Value> {
@@ -75,7 +82,11 @@ impl Core {
                     "network_policy", "public_read", "public_parse", "authenticated_read", "jw", "bb_adapter",
                     "young_parse", "young_policy", "young_job", "sessions_filter", "sessions_merge",
                     "sessions_read", "sessions_write", "sessions_device_save", "sessions_identity_save", "sessions_validate",
-                    "browser_start", "browser_stop", "browser_status", "app_io", "bb_io", "young_io", "native_page_driver"]})),
+                    "browser_start", "browser_stop", "browser_status", "app_io", "bb_io", "young_io", "native_page_driver",
+                    "login_begin", "login_status", "login_cancel", "chat_io", "desktop_backend"]})),
+            "login_begin" | "login_status" | "login_cancel" => {
+                self.login.dispatch(operation, input)
+            }
             "app_io" => app_io::dispatch(input, &self.model).await,
             "bb_io" => bb_io::dispatch(input).await,
             "young_io" => young_io::dispatch(input).await,

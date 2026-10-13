@@ -12,6 +12,10 @@ SUPPORTED={'portal','student','spaces','drive','vlab'}
 
 def manual(site,notify,stopped=None,timeout=600):
     if site not in SUPPORTED:raise ValueError('没有这个平台的登录入口。')
+    from ..desktop import native_core
+    if native_core.enabled():
+        from ..desktop.login_native import run
+        return run(site,notify,stopped,timeout)
     with browser_session(site,headed=True) as s:
         observed={'account':s.account,'drive_ready':False}
         def capture(source,value):

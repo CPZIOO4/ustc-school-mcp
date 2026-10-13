@@ -23,6 +23,10 @@ CAPTURE_ACCOUNT = """(() => {
 
 
 def manual_identity(notify, timeout=600):
+    from . import native_core
+    if native_core.enabled():
+        from .login_native import run
+        return run('identity', notify, timeout=timeout)
     from playwright.sync_api import sync_playwright
     previous = None
     try:
@@ -88,6 +92,10 @@ def manual_identity(notify, timeout=600):
 
 
 def manual_icourse(notify, timeout=600):
+    from . import native_core
+    if native_core.enabled():
+        from .login_native import run
+        return run('icourse', notify, timeout=timeout)
     from playwright.sync_api import sync_playwright
     from ..icourse.session import save_session as save_icourse, load_session as load_icourse
     notify('waiting_for_user', '请在评课社区官方页面登录；这是独立账号。')
@@ -115,6 +123,10 @@ def manual_icourse(notify, timeout=600):
 
 def manual_service(service, notify, stopped=None, timeout=600):
     """Explicit user-operated login; only verified site sessions reach disk."""
+    from . import native_core
+    if native_core.enabled():
+        from .login_native import run
+        return run(service, notify, stopped, timeout)
     import importlib
     from playwright.sync_api import sync_playwright, Error as PlaywrightError
     from ..service_errors import ServiceError

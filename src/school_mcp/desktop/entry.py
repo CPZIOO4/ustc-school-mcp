@@ -17,6 +17,9 @@ def main():
         sys.argv = [sys.argv[0], *argv[2:]]
         from school_mcp.__main__ import main as cli
         return cli()
+    if argv == ['--adapter-stdio']:
+        from school_mcp.desktop.legacy_worker import main as adapter
+        return adapter()
     from school_mcp.desktop.server import main as desktop
     try:
         desktop(argv)

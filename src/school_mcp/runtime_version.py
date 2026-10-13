@@ -44,7 +44,7 @@ def snapshot(package: Path) -> dict:
             for name in sorted(names):
                 path = Path(directory) / name
                 relative = path.relative_to(package).as_posix()
-                if name.startswith('.') or not (name.endswith('.py') or relative == 'agent/catalog_data.json'):
+                if name.startswith('.') or not (name.endswith('.py') or relative in {'agent/catalog_data.json', 'desktop/chat_resources.json'}):
                     continue
                 files[relative] = read(path)
                 if len(files) > 2000:

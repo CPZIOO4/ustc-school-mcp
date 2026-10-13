@@ -23,11 +23,12 @@ def main():
         assert archive.read('school-core.exe')==(root/'native/core/target/release/school-core.exe').read_bytes()
         assert archive.read('engine/USTC-School-Engine.exe')==(root/'dist/USTC-School-Engine/USTC-School-Engine.exe').read_bytes()
         assert archive.read('engine/_internal/school_mcp/agent/catalog_data.json')==(root/'src/school_mcp/agent/catalog_data.json').read_bytes()
+        assert archive.read('engine/_internal/school_mcp/desktop/chat_resources.json')==(root/'src/school_mcp/desktop/chat_resources.json').read_bytes()
         for name in ('index.html','app.js','transport.js','style.css'):
             assert archive.read('engine/_internal/school_mcp/desktop/web/'+name)==(root/'src/school_mcp/desktop/web'/name).read_bytes()
         source=root/'src/school_mcp'
         inventory={p.relative_to(source).as_posix():hashlib.sha256(p.read_bytes()).hexdigest()
-                   for p in source.rglob('*') if p.is_file() and (p.suffix in {'.py','.js','.css','.html'} or p.relative_to(source).as_posix() == 'agent/catalog_data.json') and '__pycache__' not in p.parts}
+                   for p in source.rglob('*') if p.is_file() and (p.suffix in {'.py','.js','.css','.html'} or p.relative_to(source).as_posix() in {'agent/catalog_data.json', 'desktop/chat_resources.json'}) and '__pycache__' not in p.parts}
         manifest=json.loads(archive.read('engine/_internal/school_mcp/diagnostic-build.json'))
         assert manifest['fingerprint']==hashlib.sha256(json.dumps(inventory,sort_keys=True).encode()).hexdigest()
     print(json.dumps({'passed':True,'entries':len(names),'zip_sha256':sha,'size_bytes':package.stat().st_size,

@@ -1,6 +1,6 @@
 [package]
 name = "school-core"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 license = "MIT"
 rust-version = "1.99"
@@ -25,7 +25,7 @@ tungstenite = { version = "0.30", default-features = false, features = ["handsha
 base64 = "0.22"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Security_Cryptography", "Win32_System_Memory", "Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
+windows-sys = { version = "0.61", features = ["Win32_Security_Cryptography", "Win32_System_Memory", "Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_IO", "Win32_Security"] }
 
 [profile.release]
 strip = true

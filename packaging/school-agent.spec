@@ -10,12 +10,13 @@ source = root / 'src/school_mcp'
 build_manifest = root / 'build/diagnostic-build.json'
 build_manifest.parent.mkdir(exist_ok=True)
 inventory = {p.relative_to(source).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
-             for p in source.rglob('*') if p.is_file() and (p.suffix in {'.py','.js','.css','.html'} or p.relative_to(source).as_posix() == 'agent/catalog_data.json') and '__pycache__' not in p.parts}
+             for p in source.rglob('*') if p.is_file() and (p.suffix in {'.py','.js','.css','.html'} or p.relative_to(source).as_posix() in {'agent/catalog_data.json', 'desktop/chat_resources.json'}) and '__pycache__' not in p.parts}
 build_manifest.write_text(json.dumps({'files':[p for p in inventory if p.endswith('.py')],
     'fingerprint':hashlib.sha256(json.dumps(inventory,sort_keys=True).encode()).hexdigest()}),encoding='utf-8')
 datas = [(str(root / 'src/school_mcp/desktop/web'), 'school_mcp/desktop/web'),
          (str(build_manifest), 'school_mcp'),
          (str(root / 'src/school_mcp/agent/catalog_data.json'), 'school_mcp/agent'),
+         (str(root / 'src/school_mcp/desktop/chat_resources.json'), 'school_mcp/desktop'),
          (str(root / 'src/school_mcp/vlab/runner.py'), 'school_mcp/vlab'),
          (str(root / '.agents/skills/school-agent'), 'school-skills/school-agent'),
          (str(root / '.agents/skills/school-services'), 'school-skills/school-services')]
