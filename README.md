@@ -1,10 +1,18 @@
 # USTC School MCP
 
+桌面客户端正迁移到 [Rust + Tauri](docs/native-desktop.md)：独立应用窗口、模型请求、智能体执行决策与加密记录由原生核心处理，沿用本人已有数据。学校网站适配仍通过 Python 临时兼容层运行，详细边界见 [迁移进度](docs/rust-migration.md)。当前验收目标为 Windows，macOS/Linux/Android/iOS 尚未完成业务适配。原浏览器版保持可用。
+
+新增 [信息中心](docs/campus-digest.md)：公开就业/实习/宣讲与三个学院通知、已有校园来源汇总、按条件订阅、应用内及授权邮箱简报、课表/事项 ICS 导出。默认仅预览；用户选择来源和收件人后开启固定后台脚本。支持协调器 `digest` 流程，公开网页范围与运行限制见说明。
+
+新增 [Windows 本机学校助手](docs/desktop.md)：双击 EXE 打开本机网页，在官方窗口登录学校身份和邮箱，再填写自己的模型 API 即可聊天。登录态、任务和模型密钥在本机加密保存；程序内置原有 MCP 协调工具与业务 Skill。当前为本地开发版；真实 DeepSeek 工具执行已验证。新用户仍需本人首次登录，其他模型须通过应用能力测试，邮箱自动生成密码仍有待验收范围。
+
+可选 [学校智能体入口](docs/school-agent.md)：在已有 AI 客户端加载 `school-agent` Skill 与协调服务，按任务获取相关工具、检查参数及已有授权，并加密保存目标、调用参数和原业务记录关联。宿主 AI 负责理解用户意图，固定操作继续由原 MCP 和后台脚本完成。
+
 **首次使用：** 下载、解压后，把文件夹交给支持本地命令和 stdio MCP 的 AI，告诉它：“读取 AGENTS.md，部署这个 MCP，带我绑定邮箱并验证连接。”AI 的入口是 [部署流程](docs/ai-setup.md) 和 [首次接入 Skill](.agents/skills/school-onboarding/SKILL.md)。用户主要参与学校登录；无需手写配置。完整账号接入当前支持 Windows + 本机 Chrome。
 
 新增 [固定后台脚本](docs/script-workflows.md)：BB 定时提交与回执、教务一键候选排课/批次余量监控、邮箱定时发送/回复跟踪/规则归档。脚本不调用模型；选退课写接口仍待开放批次验证。
 
-面向个人学校事务的实验性 MCP 项目。当前提供九个独立服务和项目内 [学校查询与业务预览 Skill](.agents/skills/school-services/SKILL.md)，各网站的实际支持范围见下文。适配器包括中科大邮箱、Blackboard、教务系统、图书馆、教务处网站、南七集市、评课社区、青春科大及财务平台。
+面向个人学校事务的实验性 MCP 项目。当前提供十五个独立服务及一个协调服务和项目内 [学校查询与业务预览 Skill](.agents/skills/school-services/SKILL.md)，各网站的实际支持范围见下文。适配器包括中科大邮箱、Blackboard、教务系统、图书馆、教务处网站、南七集市、评课社区、青春科大及财务平台，另有一网通办、学工、学习空间、科大云盘、Vlab 和受限公开网页读取。
 
 Skill 包含教务、团学、BB 和图书馆的查询及办理前预览流程，具体入口和验证边界见 [业务目录](.agents/skills/school-services/references/business-catalog.md)。网页已到达的业务不等于已实现 MCP 接口；本项目不会据此自动提交申请、报名、预约或修改记录。
 
@@ -12,7 +20,7 @@ Blackboard、教务系统和个人图书馆共用经本人授权保存的统一�
 
 教务适配器支持首页、菜单、学期、已选课程、个人课表和成绩查询。课程和课表默认查询当前学期，成绩默认查询已有成绩的全部学期。还支持官方开课查询、按条件生成候选课表和选退课预检；当前没有选退课执行接口，具体边界见[业务工作流](docs/business-workflows.md)。
 
-图书馆适配器支持个人首页统计、当前借阅、当前显示页的借阅历史，以及公共服务链接目录。旧版个人 OPAC 当前使用 HTTP，业务传输不受 TLS 保护；统一身份账号和密码仅向学校 HTTPS 认证站点提交。本地会话单独加密，续借、预约和空间预约等业务操作尚未实现。
+图书馆适配器支持个人首页统计、当前借阅、当前显示页的借阅历史，以及公共服务链接目录。旧版个人 OPAC 当前使用 HTTP，业务传输不受 TLS 保护；统一身份账号和密码仅向学校 HTTPS 认证站点提交。本地会话单独加密，OPAC 续借与馆藏预约尚未实现；西区学习空间预约由独立 spaces 模块提供，最终提交待真实需求验收。
 
 新增网站的说明及实际验收范围：
 
@@ -41,6 +49,8 @@ Blackboard、教务系统和个人图书馆共用经本人授权保存的统一�
 九个服务均提供 `school_<站点>_runtime_status`，离线检查启动时源码与当前文件是否一致。`bootstrap.py verify` 生成目标指纹，供客户端重载后核验；支持 ZIP 安装，保留已有登录状态。详见 [更新与运行版本检查](docs/runtime-updates.md)。
 
 BB、青春科大、评课和集市提供统一参数的 `school_<站点>_tasks` 恢复入口（站点名为 `bb/young/icourse/nan7`）：分页找回当前账号已有任务，传任务 ID 后返回阶段、等待或停止原因及下一步工具参数。BB 另支持定时脚本与原提交记录的关联。查询只读本机；不会自动重启任务或重放结果不明的写操作。详见 [任务恢复流程](.agents/skills/school-services/references/task-recovery.md)。
+
+任务列表支持短名称、存储状态与创建时间筛选；旧记录缺时间明确返回未知，不猜测。财务预检、BB 作业定位、排课和集市准备的缺项分支提供统一 `input_guidance`：字段位置、格式、信息来源及补齐后工具，供模型一次问清并保留已有参数。见 [缺项处理流程](.agents/skills/school-services/references/input-guidance.md)。
 
 教务21个工具、集市12个工具、评课15个工具。支持候选课表、选退课预检和社区发布工作流；当前无开放选课批次，评课独立登录与两站真实发布仍待验收。完整支持范围、测试与限制见[业务工作流](docs/business-workflows.md)。
 
@@ -206,3 +216,11 @@ tests/                行为和 MCP 协议验证
 - [邮件帮助中心：完整邮箱地址、IMAP 和 SMTP 端口](https://mail.ustc.edu.cn/coremail/help/index.jsp?locale=zh_CN)
 - [二次验证和客户端专用密码设置说明](https://mail.ustc.edu.cn/notice/2fa/)
 - [Foxmail 客户端配置说明](https://email.ustc.edu.cn/notice/foxmail/)
+
+## 新增校园工作流
+
+一网通办待办/进度、学工奖学金查询与优秀学生奖学金授权申请、西区学习空间计划、指定云盘目录整理和本人 Vlab 任务已接入同一智能体。奖学金申请先校验并冻结完整预览，再由固定工具填写、核对、提交和回查；未知结果不重发，其他奖学金模板暂不适配。材料支持 PDF、图片本地 OCR、Excel、DOCX 和文本，可生成可下载文件；模型设置新增科大公共模型的已有密钥绑定。真实验收与尚未验收部分见 [功能核验表](docs/functional-coverage.md)。
+
+桌面应用另有校园网站导航、按周查看的课表和本机个人资料页。固定按钮直接调用代码，不需要模型 API；网站在浏览器新标签页打开，使用浏览器自己的登录态。课表保存加密快照并显示更新时间，个人资料由本人填写，不自动发送给模型。说明见 [本机应用](docs/desktop.md)。
+
+已有 AI 客户端使用 agent 协调入口即可；独立注册新服务时，可用 `python bootstrap.py config --service portal --service student --service spaces --service drive --service vlab --service web`，verify 支持相同选择。新模块仍使用本人私人目录，旧 MCP 进程更新后需要客户端重载。

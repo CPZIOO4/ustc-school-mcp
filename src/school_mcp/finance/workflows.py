@@ -24,6 +24,9 @@ TYPES = {
 def workflow_guide(business_type='overview'):
     if business_type != 'overview' and business_type not in TYPES:
         raise FinanceError('业务类型应为overview、daily、travel、loan、remuneration或internal_transfer。')
+    from ..desktop import native_core
+    if native_core.enabled():
+        return native_core.call('finance_guide', {'business_type': business_type})
     result = {'source': GUIDE, 'source_title': '智能报销系统操作指南（2025年4月）',
               'source_checked_on': '2026-10-08', 'source_kind': 'official_document',
               'network_checked': False, 'live_form_verified': False, 'business_permissions_verified': False,

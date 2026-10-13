@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..recovery import classify
+
 import re
 from urllib.parse import urlsplit
 
@@ -51,9 +53,9 @@ class YoungClient:
                         "note": "数据大屏包含全校汇总，不能当作本人学时或本人活动记录。"}
         except network.PolicyError as exc:
             raise policy_error(YoungError, exc) from None
-        except PlaywrightError:
+        except PlaywrightError as exc:
             network.limiter.failure("young")
-            raise YoungError("青春科大后台页面读取未完成，可能会话失效或页面超时；请检查状态后重新连接。") from None
+            raise YoungError("青春科大后台页面读取未完成，可能会话失效或页面超时；请检查状态后重新连接。", code=classify(exc)[0]) from None
 
     def check(self) -> dict:
         result = self.home(1)

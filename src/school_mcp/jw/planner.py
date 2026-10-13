@@ -64,6 +64,21 @@ def overlap(a: Slot, b: Slot, gap=0):
 
 
 def generate(candidates: list[Candidate], constraints: Constraints):
+    from ..input_guidance import attach, field
+    result = _generate(candidates, constraints)
+    if result.get('state') != 'needs_input':
+        return result
+    action = result.get('next_action')
+    expected = {'narrow_candidates':'最多25个lesson_id互不重复的候选对象',
+                'separate_semesters':'一次只保留同一学期的候选对象',
+                'resolve_required_course_constraints':'核实必留课程的周次、节次及不可用时段；不能忽略已选课程'}[action]
+    return attach(result,'school_jw_plan_timetables',
+                  [field('/candidates','请核对候选课程范围或必留课的时间约束',expected,
+                         source='official_data' if action=='resolve_required_course_constraints' else 'tool_result')],
+                  ['candidates','constraints'])
+
+
+def _generate(candidates: list[Candidate], constraints: Constraints):
     if len(candidates) > 25 or len({c.lesson_id for c in candidates}) != len(candidates):
         return dict(state='needs_input', missing_fields=['unique_candidates_max_25'], next_action='narrow_candidates', plans=[])
     if len({c.semester_id for c in candidates if c.semester_id is not None}) > 1:

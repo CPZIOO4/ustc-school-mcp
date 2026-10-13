@@ -6,7 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from importlib import import_module
 
-SERVICES = ("mail", "bb", "jw", "library", "teach", "nan7", "icourse", "young", "finance")
+CAMPUS_SERVICES = ('portal', 'student', 'spaces', 'drive', 'vlab')
+SERVICES = ("mail", "bb", "jw", "library", "teach", "nan7", "icourse", "young", "finance") + CAMPUS_SERVICES
 CLIENTS = {"bb": "BBClient", "jw": "JWClient", "library": "LibraryClient", "teach": "TeachClient",
            "nan7": "Nan7Client", "icourse": "ICourseClient", "young": "YoungClient", "finance": "FinanceClient"}
 
@@ -15,13 +16,21 @@ def check_service(service: str) -> dict:
     started = time.monotonic()
     report = {"service": service, "checked_at": datetime.now(timezone.utc).isoformat(), "read_only": True}
     try:
-        if service == "mail":
+        if service in CAMPUS_SERVICES:
+            import asyncio
+            from .agent.catalog import adapter
+            async def campus_check():
+                return await adapter(service).call_tool(f'school_{service}_check_connection', {})
+            raw = asyncio.run(campus_check())
+            result = raw[1]
+        elif service == "mail":
             from .mail.client import MailClient
             from .mail.config import load_config
             client = MailClient(load_config())
         else:
             client = getattr(import_module(f"school_mcp.{service}.client"), CLIENTS[service])()
-        result = client.check()
+        if service not in CAMPUS_SERVICES:
+            result = client.check()
         report.update(connected=result.get("connected") is True, state="connected" if result.get("connected") is True else "unverified")
         if service == "library":
             report["transport"] = result.get("transport") if result.get("transport") in {"http", "https"} else "unknown"
@@ -38,6 +47,8 @@ def check_service(service: str) -> dict:
         elif service in {"bb", "jw", "library", "nan7", "young", "finance"}:
             report["reconnect_tool"] = f"school_{service}_reconnect"
             report["note"] = "先用检查工具区分网络问题与登录失效；已有登录授权时可后台重连。"
+        elif service in CAMPUS_SERVICES:
+            report['note'] = '请在应用账号页检查当前平台连接，必要时本人完成官方验证。'
         else:
             report["note"] = "公共读取无需邮箱或统一身份登录，请检查网络或站点状态。"
     report["elapsed_ms"] = round((time.monotonic() - started) * 1000)

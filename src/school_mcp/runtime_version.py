@@ -17,7 +17,7 @@ def digest(values: dict) -> str:
 
 
 def snapshot(package: Path) -> dict:
-    """Read only package Python sources and known deployment manifests, never private state."""
+    """Read package source, fixed public catalog and deployment manifests, never private state."""
     try:
         files = {}
         total = 0
@@ -42,13 +42,16 @@ def snapshot(package: Path) -> dict:
             if any((Path(directory) / d).is_symlink() for d in dirs):
                 raise ValueError('unverifiable_source')
             for name in sorted(names):
-                if name.startswith('.') or not name.endswith('.py'):
-                    continue
                 path = Path(directory) / name
-                files[path.relative_to(package).as_posix()] = read(path)
+                relative = path.relative_to(package).as_posix()
+                if name.startswith('.') or not (name.endswith('.py') or relative == 'agent/catalog_data.json'):
+                    continue
+                files[relative] = read(path)
                 if len(files) > 2000:
                     raise ValueError('source_limit')
         if '__init__.py' not in files or 'runtime_version.py' not in files:
+            raise ValueError('incomplete_source')
+        if 'agent/catalog.py' in files and 'agent/catalog_data.json' not in files:
             raise ValueError('incomplete_source')
         # A wheel has no project manifests; do not look around site-packages.
         manifests = {}
@@ -116,6 +119,8 @@ MONITOR = RuntimeMonitor()
 
 def install(mcp, service: str) -> None:
     from mcp.types import ToolAnnotations
+    from .safety_log import install as install_diagnostics
+    install_diagnostics(mcp, service)
 
     def runtime_status(expected_fingerprint: str | None = None) -> dict[str, Any]:
         return {'service': service, **MONITOR.report(expected_fingerprint)}

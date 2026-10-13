@@ -21,6 +21,8 @@ CANARIES += ('nested/young-registrations.sqlite3', 'nested/young-registrations.s
 CANARIES += ('nested/business-plans.sqlite3', 'nested/business-plans.sqlite3-wal', 'nested/icourse-session.dpapi')
 CANARIES += ('nested/register-young-target.py', '.local/register-young-target.py', 'nested/script-jobs.sqlite3', 'nested/script-jobs.sqlite3-wal', 'nested/script-jobs.sqlite3-journal')
 CANARIES += ('.local/mail-browser-setup.dpapi', 'nested/mail-browser-setup.dpapi.tmp')
+CANARIES += ('nested/digest.sqlite3', 'nested/digest.sqlite3-journal', 'nested/calendar-exports/example.ics')
+CANARIES += ('nested/agent-tasks.sqlite3', 'nested/desktop-chats.sqlite3', 'nested/desktop-chats.sqlite3-wal', 'dist/USTC-School-Agent/USTC-School-Agent.exe')
 
 
 def git(*args: str, data: bytes | None = None) -> bytes:
@@ -29,9 +31,9 @@ def git(*args: str, data: bytes | None = None) -> bytes:
 
 def private(path: str) -> bool:
     parts = PurePosixPath(path.lower()).parts
-    if 'mail-exports' in parts:
+    if 'mail-exports' in parts or 'calendar-exports' in parts:
         return True
-    if parts[-1].startswith(('mail-outbox.sqlite3', 'bb-submissions.sqlite3', 'business-plans.sqlite3', 'young-registrations.sqlite3', 'script-jobs.sqlite3')):
+    if parts[-1].startswith(('digest.sqlite3', 'mail-outbox.sqlite3', 'bb-submissions.sqlite3', 'business-plans.sqlite3', 'young-registrations.sqlite3', 'script-jobs.sqlite3')):
         return True
     return any(part in PRIVATE_DIRS or part.startswith("mail-setup-") for part in parts) or any(fnmatch.fnmatch(parts[-1], pattern) for pattern in PRIVATE_PATTERNS) or any(part.startswith(".env") and part != ".env.example" for part in parts)
 
@@ -57,7 +59,7 @@ def main() -> int:
             findings.append({"path": name, "kind": "private_runtime_path"})
             continue  # Do not read it, even if accidentally staged.
         path = ROOT / name
-        if path.suffix not in {".py", ".md", ".toml", ".ps1", ".yaml", ".yml", ".json"}:
+        if path.suffix not in {".py", ".rs", ".md", ".toml", ".lock", ".ps1", ".yaml", ".yml", ".json", ".js", ".html", ".css", ".txt", ".spec"}:
             continue
         if path.is_symlink() or not path.resolve().is_relative_to(ROOT):
             findings.append({"path": name, "kind": "external_or_symlink_candidate"})

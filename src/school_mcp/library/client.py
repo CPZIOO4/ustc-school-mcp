@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..recovery import classify
+
 from http.cookiejar import Cookie
 from urllib.parse import urljoin, urlsplit
 
@@ -60,8 +62,8 @@ class LibraryClient:
                 raise LibraryError("图书馆页面跳转次数超过限制。")
         except LibraryError:
             raise
-        except (httpx.HTTPError, ValueError):
-            raise LibraryError("无法读取个人图书馆，请检查网络与登录状态。") from None
+        except (httpx.HTTPError, ValueError) as exc:
+            raise LibraryError("无法读取个人图书馆，请检查网络与登录状态。", code=classify(exc)[0]) from None
 
     def check(self) -> dict:
         response = self.get("/reader/redr_info.php")
@@ -86,5 +88,5 @@ def list_services(transport=None) -> dict:
         if response.is_redirect or len(response.content) > 5 * 1024 * 1024 or "text/html" not in response.headers.get("content-type", "").lower():
             raise LibraryError("图书馆主页类型、跳转或大小超出读取范围。")
         return services(response.text)
-    except httpx.HTTPError:
-        raise LibraryError("无法读取图书馆公共服务目录。") from None
+    except httpx.HTTPError as exc:
+        raise LibraryError("无法读取图书馆公共服务目录。", code=classify(exc)[0]) from None

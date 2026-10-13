@@ -10,6 +10,7 @@ import httpx
 
 from ..network import http_client, bounded_request
 from ..workflow_store import PlanStore, digest, require, WorkflowError
+from ..input_guidance import attach, field
 from .client import Nan7Client, valid_offer_id, CATEGORIES
 from .session import load_session, API_URL, SITE_URL, Nan7Error
 
@@ -86,7 +87,15 @@ class Publisher:
         if offer_type == 'sell' and category is None:
             missing.append('category')
         if missing:
-            return dict(state='needs_input', missing_fields=missing, can_execute=False, next_action='ask_user_for_missing_fields', mutation_performed=False)
+            formats = {'title':'1–100字文本', 'description':'1–20000字真实商品说明',
+                       'contact':'1–500字；用户同意公开的联系方式', 'category':'0–6的整数，来自school_nan7_list_categories'}
+            labels = {'title':'商品标题','description':'商品说明','contact':'公开联系方式','category':'商品类别'}
+            return attach(dict(state='needs_input', missing_fields=missing, can_execute=False,
+                               next_action='ask_user_for_missing_fields', mutation_performed=False),
+                          'school_nan7_prepare_offer',
+                          [field('/'+name, '请补充'+labels[name], formats[name],
+                                 source='tool_result' if name=='category' else 'user') for name in missing],
+                          ['title','description','price','contact','category','offer_type','images'])
         require(len(title.strip()) <= 100 and len(description) <= 20000 and len(contact) <= 500, '标题最多100字，描述最多20000字，联系方式最多500字。')
         require(category is None or type(category) is int and 0 <= category <= 6, '分类为0–6。')
         price_text = None

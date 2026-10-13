@@ -18,7 +18,7 @@ from school_mcp.young.session import YoungError, load_session, own_state, save_s
 
 class YoungBoundaryTests(unittest.TestCase):
     def test_own_state_keeps_only_exact_https_origin_and_site_cookies(self):
-        state = own_state({"cookies": [{"domain":"young.ustc.edu.cn","value":"synthetic-token"},
+        state = own_state({"cookies": [{"name":"session","domain":"young.ustc.edu.cn","value":"synthetic-token"},
                                       {"domain":"id.ustc.edu.cn"},{"domain":".ustc.edu.cn"},{"domain":"evil.example"}],
                            "origins": [{"origin":"https://young.ustc.edu.cn"},{"origin":"http://young.ustc.edu.cn"},
                                        {"origin":"https://young.ustc.edu.cn.evil.example"}]})

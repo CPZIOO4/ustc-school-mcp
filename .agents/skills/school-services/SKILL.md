@@ -5,6 +5,8 @@ description: 使用本项目的学校 MCP 收发与回复邮件、查询中科�
 
 # 学校邮件、排课、查询与授权业务
 
+已部署 `school-agent` 协调入口时，可由 [学校智能体 Skill](../school-agent/SKILL.md) 负责路由、加密上下文和分派；本 Skill 的站点业务规则仍适用，协调层不会扩大业务权限。
+
 首次安装、缺少 MCP 配置或第一次绑定邮箱时，先读取 [首次接入 Skill](../school-onboarding/SKILL.md)。部署工具和账号认证是不同阶段，完成后再回到本业务流程。
 
 更新代码后或工具表现与文档不一致时，先调用该站点的 `school_<站点>_runtime_status`。`restart_required` 按 [更新核验流程](../../../docs/runtime-updates.md) 重载并在客户端核对目标指纹；工具不存在时先刷新旧服务。`expected_mismatch` 检查配置是否指向另一份项目，`check_failed` 检查安装完整性。日常成功查询无需反复检查全部服务版本。
@@ -31,8 +33,15 @@ description: 使用本项目的学校 MCP 收发与回复邮件、查询中科�
 
 按任务只读取对应参考：
 
+工具返回 `input_guidance` 时，按 [统一缺项提示](references/input-guidance.md) 一次整理问题；区分用户填写、已有工具结果、官方数据和人工核实。提示不是完整执行参数，也不是提交授权。
+
 | 任务 | 标准流程 |
 | --- | --- |
+| 信息汇总、订阅推送、就业实习、学院讲座、日历导出 | [信息中心](references/campus-digest.md)，先预览，固定脚本按授权参数执行 |
+| 一网通办服务、待办、申请进度，学工奖学金条件与优秀学生奖学金申请 | [一网通办与学工奖学金](references/campus-portal-student.md)，查询、冻结预览、授权填写提交及回查；其他奖学金仅材料准备 |
+| 学校公开网页、附件与材料，Vlab 环境和授权任务 | [公开网页与 Vlab](references/campus-web-vlab.md)，按原计划执行并查结束回执 |
+| 学习空间、讨论室资源与可用时间 | [学习空间流程](references/campus-spaces.md)，西区查询、预约/取消计划及回查，最终写入待真实需求验收 |
+| 科大云盘指定库/目录查询、下载、上传和移动 | [科大云盘流程](references/campus-drive.md)，预览后授权写入并回查 |
 | 找回上次任务、重载后继续、核实中断是否已经提交 | [任务状态与恢复](references/task-recovery.md)，四类业务复用原记录，先核验再继续 |
 | 查某课授课/实验时间、合并课表与 BB 公告、查询中恢复登录 | [课程安排与登录恢复](references/course-schedule-recovery.md)，优先固定工具，按返回状态继续 |
 | 盘点能用什么、核实已实现能力 | [业务目录与证据](references/business-catalog.md) |

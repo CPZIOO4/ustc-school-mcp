@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from school_mcp.mail.config import MailError, local_dir
 from school_mcp.mail.credentials import _dpapi
+from .. import session_native as native
 
 BASE_URL = "https://www.bb.ustc.edu.cn"
 PORTAL_PATH = "/webapps/portal/execute/tabs/tabAction?tab_tab_group_id=_1_1"
@@ -19,6 +20,8 @@ class BBError(ServiceError):
 
 
 def bb_cookies(cookies: list[dict]) -> list[dict]:
+    if native.enabled():
+        return native.invoke('sessions_filter', 'bb', BBError, state={'cookies': cookies})['cookies']
     selected = []
     for cookie in cookies:
         domain = cookie.get("domain", "").lstrip(".").lower()
@@ -32,6 +35,12 @@ def save_session(cookies: list[dict]) -> None:
     if not selected:
         raise BBError("没有取得 BB 平台的登录 Cookie，请先完成学校页面中的登录。")
     data = {"base_url": BASE_URL, "saved_at": datetime.now(timezone.utc).isoformat(), "cookies": selected}
+    if native.enabled():
+        account = native.current_account()
+        if account is not None:
+            data['account'] = account
+        native.invoke('sessions_write', 'bb', BBError, path=local_dir() / 'bb.session.dpapi', value=data, account=account)
+        return
     try:
         encrypted = _dpapi(json.dumps(data, ensure_ascii=False).encode("utf-8"))
         directory = local_dir()
@@ -44,6 +53,8 @@ def save_session(cookies: list[dict]) -> None:
 
 
 def load_session() -> dict:
+    if native.enabled():
+        return native.invoke('sessions_read', 'bb', BBError, path=local_dir() / 'bb.session.dpapi', account=native.current_account())
     try:
         data = json.loads(_dpapi((local_dir() / "bb.session.dpapi").read_bytes(), decrypt=True))
         if data["base_url"] != BASE_URL or not bb_cookies(data["cookies"]):

@@ -7,6 +7,9 @@ from urllib.parse import quote, urljoin, urlsplit
 import httpx
 
 from ..network import http_client
+from ..recovery import classify
+from ..service_errors import ServiceError
+from .. import public_native
 from bs4 import BeautifulSoup
 
 BASE_URL = "https://www.teach.ustc.edu.cn"
@@ -15,7 +18,7 @@ ARTICLE_PATH = re.compile(r"/(?:notice|education|service|calendar)(?:/[a-z][a-z0
 MAX_BYTES = 5 * 1024 * 1024
 
 
-class TeachError(RuntimeError):
+class TeachError(ServiceError, RuntimeError):
     pass
 
 
@@ -137,7 +140,7 @@ class TeachClient:
                     if response.is_redirect:
                         raise TeachError("教务站返回跳转；匿名读取未跟随，可能需要统一认证或链接已变更。")
                     if response.status_code in {401, 403}:
-                        raise TeachError("教务站限制访问；当前仅支持匿名读取。")
+                        raise TeachError("教务站限制访问；当前仅支持匿名读取。", code='access_denied')
                     if response.status_code == 404:
                         raise TeachError("教务站未找到此文章或页码。")
                     response.raise_for_status()
@@ -150,8 +153,8 @@ class TeachClient:
                             raise TeachError("页面超过读取大小限制。")
                         chunks.append(chunk)
                     return b"".join(chunks).decode(response.encoding or "utf-8", errors="replace"), str(response.url)
-        except httpx.HTTPError:
-            raise TeachError("无法读取教务站，请检查网络或稍后重试。") from None
+        except httpx.HTTPError as exc:
+            raise TeachError("无法读取教务站，请检查网络或稍后重试。", code=classify(exc)[0]) from None
 
     @staticmethod
     def _page(page: int) -> str:
@@ -160,10 +163,14 @@ class TeachClient:
         return f"/page/{page}" if page > 1 else ""
 
     def list_notices(self, category: str = "notice", page: int = 1) -> dict[str, Any]:
+        if public_native.enabled(self.transport):
+            return public_native.read('teach_list', {'category': category, 'page': page}, TeachError)
         html, url = self._get(BASE_URL + category_path(category) + self._page(page))
         return parse_listing(html, url, page, category)
 
     def search(self, keyword: str, page: int = 1) -> dict[str, Any]:
+        if public_native.enabled(self.transport):
+            return public_native.read('teach_search', {'keyword': keyword, 'page': page}, TeachError)
         keyword = keyword.strip()
         if not keyword or len(keyword) > 100 or any(ord(c) < 32 for c in keyword):
             raise TeachError("keyword 必须为 1 至 100 个字符，不能含控制字符。")
@@ -173,9 +180,13 @@ class TeachClient:
         return result
 
     def read_article(self, url: str) -> dict[str, Any]:
+        if public_native.enabled(self.transport):
+            return public_native.read('teach_read', {'url': url}, TeachError)
         html, source_url = self._get(article_url(url))
         return parse_article(html, source_url)
 
     def check(self) -> dict[str, Any]:
+        if public_native.enabled(self.transport):
+            return public_native.read('teach_check', {}, TeachError)
         result = self.list_notices()
         return {"connected": result["access"] == "public", "access": result["access"], "source_url": result["source_url"], "read_only": True, "count_on_first_page": result.get("count")}

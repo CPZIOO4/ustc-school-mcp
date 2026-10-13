@@ -5,6 +5,7 @@ No request is replayed here. Callers may try again after the reported cooldown.
 from __future__ import annotations
 
 import math
+import os
 import random
 import sqlite3
 import time
@@ -18,7 +19,9 @@ from .service_errors import policy_error
 
 INTERVALS = {"mail": 0.5, "smtp": 2.0, "bb": 1.0, "jw": 1.0, "library": 1.0,
              "library-public": 1.0, "teach": 1.0, "nan7": 1.0, "icourse": 1.0,
-             "young": 2.0, "finance": 1.0, "identity": 5.0}
+             "young": 2.0, "finance": 1.0, "identity": 5.0,
+             "portal": 1.0, "student": 1.0, "spaces": 1.0, "rooms": 1.0,
+             "hightech": 1.0, "drive": 1.0, "vlab": 1.0, "llm": 1.0, "web": 1.0}
 
 
 class PolicyError(RuntimeError):
@@ -32,6 +35,8 @@ class CooldownError(PolicyError):
 
 
 def retry_after(value: str | None, now: float) -> float:
+    if os.environ.get('SCHOOL_NATIVE_CORE'):
+        return _native_policy(dict(action='retry_after', retry_after=value, now=now))['seconds']
     if not value:
         return 0.0
     try:
@@ -45,10 +50,29 @@ def retry_after(value: str | None, now: float) -> float:
         return 0.0
 
 
+def _native_policy(value):
+    """Only policy data crosses this pipe; never URLs, account state or exceptions."""
+    from .desktop import native_core
+    try:
+        return native_core.call('network_policy', value)
+    except Exception:
+        # No fallback after a native error: proceeding would bypass the shared gate.
+        raise PolicyError("本机请求节流状态不可用，已停止网络请求；请检查私人目录权限后重试。") from None
+
+
 class RequestLimiter:
     def __init__(self, path: Path | None = None, *, clock=time.time, sleep=time.sleep, jitter=random.random):
         self.path = path
         self.clock, self.sleep, self.jitter = clock, sleep, jitter
+
+    def _native(self, action, service, **values):
+        if not os.environ.get('SCHOOL_NATIVE_CORE'):
+            return None
+        if service not in INTERVALS:
+            raise ValueError("Unknown service")
+        path = (self.path or local_dir() / 'request-policy.sqlite3').absolute()
+        return _native_policy(dict(action=action, database=str(path), service=service,
+                                   now=self.clock(), **values))
 
     @contextmanager
     def state(self, service: str):
@@ -76,6 +100,16 @@ class RequestLimiter:
         # Recheck after sleeping: another process may have received a 429 meanwhile.
         deadline = self.clock() + 10
         while True:
+            native = self._native('acquire', service, deadline=deadline)
+            if native is not None:
+                if native['state'] == 'acquired':
+                    return
+                if native['state'] == 'cooldown':
+                    raise CooldownError(native['retry_after_seconds'])
+                if native['state'] != 'wait':
+                    raise PolicyError('本机请求节流状态无效，已停止网络请求。')
+                self.sleep(native['retry_after_seconds'])
+                continue
             with self.state(service) as state:
                 now = self.clock()
                 if state[2] > now:
@@ -89,6 +123,9 @@ class RequestLimiter:
             self.sleep(wait)
 
     def failure(self, service: str, *, server_wait: float = 0, authentication: bool = False) -> float:
+        if os.environ.get('SCHOOL_NATIVE_CORE'):
+            return self._native('failure', service, server_wait=server_wait,
+                                authentication=authentication, jitter=self.jitter())['retry_after_seconds']
         with self.state(service) as state:
             state[1] = min(state[1] + 1, 6)
             base = min(60.0, 2.0 ** state[1])
@@ -97,12 +134,20 @@ class RequestLimiter:
             return state[2] - self.clock()
 
     def success(self, service: str) -> None:
+        if self._native('success', service) is not None:
+            return
         with self.state(service) as state:
             # An older in-flight success must not erase a newer process's cooldown.
             if state[2] <= self.clock():
                 state[1], state[2] = 0, 0.0
 
     def response(self, service: str, status: int, headers) -> None:
+        if os.environ.get('SCHOOL_NATIVE_CORE'):
+            result = self._native('response', service, status=status,
+                                  retry_after=headers.get('retry-after'), jitter=self.jitter())
+            if result['state'] == 'cooldown':
+                raise CooldownError(result['retry_after_seconds'])
+            return
         if status in {401, 403}:
             self.failure(service, authentication=True, server_wait=retry_after(headers.get("retry-after"), self.clock()))
         elif status in {408, 429} or status >= 500:

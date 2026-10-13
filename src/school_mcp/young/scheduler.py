@@ -51,7 +51,7 @@ def task_name(identifier):return 'SchoolMCP-Young-'+valid_id(identifier)
 
 
 def task_xml(identifier,monitor_from, *, executable=None,private_dir=None):
-    exe=Path(executable or sys.executable).with_name('pythonw.exe')
+    exe=Path(executable or sys.executable) if getattr(sys, 'frozen', False) else Path(executable or sys.executable).with_name('pythonw.exe')
     require(exe.exists(),'未找到无窗口 Python 解释器。')
     directory=str((private_dir or local_dir()).resolve())
     args=subprocess.list2cmdline(['-X','utf8','-m','school_mcp','young-registration-worker',
@@ -63,7 +63,7 @@ def task_xml(identifier,monitor_from, *, executable=None,private_dir=None):
 <Triggers><TimeTrigger><StartBoundary>{escape(start)}</StartBoundary><Enabled>true</Enabled></TimeTrigger></Triggers>
 <Principals><Principal id="Author"><UserId>__CURRENT_USER_SID__</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
 <Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><StartWhenAvailable>true</StartWhenAvailable><Enabled>true</Enabled><Hidden>true</Hidden><WakeToRun>true</WakeToRun><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>
-<Actions Context="Author"><Exec><Command>{escape(str(exe.resolve()))}</Command><Arguments>{escape(args)}</Arguments><WorkingDirectory>{escape(str(Path(__file__).resolve().parents[3]))}</WorkingDirectory></Exec></Actions></Task>'''
+<Actions Context="Author"><Exec><Command>{escape(str(exe.resolve()))}</Command><Arguments>{escape(args)}</Arguments><WorkingDirectory>{escape(str(Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[3]))}</WorkingDirectory></Exec></Actions></Task>'''
 
 
 def inspect_schedule(identifier):
@@ -120,17 +120,16 @@ Register-ScheduledTask -TaskName '{name}' -Xml $xml -Force | Out-Null;
 def start_waiter(identifier,spec):
     from ..login_runtime import process_started_at
     from ..background_process import spawn
-    exe=Path(sys.executable).with_name('pythonw.exe')
+    exe=Path(sys.executable) if getattr(sys, 'frozen', False) else Path(sys.executable).with_name('pythonw.exe')
     require(exe.exists(),'未找到无窗口 Python。')
     spec.update(scheduler='background-python',scheduler_warning='系统计划任务未成功核验，使用驻留Python等待；不跨电脑重启。')
     write_spec(identifier,spec)
     args=[str(exe),'-X','utf8','-m','school_mcp','young-registration-worker','--schedule-id',identifier,'--private-dir',str(local_dir())]
     env={**os.environ,'SCHOOL_MCP_LOCAL_DIR':str(local_dir()),'SCHOOL_MCP_BROWSER_HEADED':'0','PYTHONUTF8':'1'}
-    with (spec_path(identifier).parent/f'{identifier}.log').open('ab') as log:
-        try:
-            process=spawn(args,stdout=log,stderr=log,env=env,cwd=Path(__file__).resolve().parents[3])
-        except OSError:
-            raise YoungError('系统不允许独立后台进程；未安排成功，不能保证启动器退出后继续运行。') from None
+    try:
+        process=spawn(args,env=env,cwd=Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[3])
+    except OSError:
+        raise YoungError('系统不允许独立后台进程；未安排成功，不能保证启动器退出后继续运行。') from None
     spec.update(pid=process.pid,process_started_at=process_started_at(process.pid))
     write_spec(identifier,spec)
     result=inspect_schedule(identifier)

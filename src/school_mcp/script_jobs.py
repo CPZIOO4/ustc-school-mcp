@@ -91,7 +91,7 @@ class JobStore:
         with self.db() as db:
             return self._get(db, identifier)
 
-    def create(self, service, kind, parameters, start_at, end_at, poll_seconds, account_id):
+    def create(self, service, kind, parameters, start_at, end_at, poll_seconds, account_id, *, task_label=None):
         require(kind in KINDS and kind.startswith(service + '_'), '不支持的固定流程。')
         start, end = timestamp(start_at), timestamp(end_at)
         require(now() - timedelta(minutes=5) <= start <= now() + timedelta(days=30), '开始时间须在现在前5分钟至未来30天内。')
@@ -120,7 +120,8 @@ class JobStore:
                         '该文件夹已有运行中或写入结果未核实的归档任务，先核查原任务，不能重复启动。')
             identifier = uuid.uuid4().hex
             spec.update(state='ready', claimed=False, cancel_requested=False, effect_started=False,
-                        checkpoint={}, result={}, updated_at=now().isoformat(), worker=None)
+                        label=task_label[:160] if isinstance(task_label, str) else None,
+                        checkpoint={}, result={}, created_at=now().isoformat(), updated_at=now().isoformat(), worker=None)
             db.execute('INSERT INTO jobs VALUES (?,?,?)', (identifier, key, _dpapi(json.dumps(spec).encode())))
         return identifier
 
@@ -208,14 +209,14 @@ def launch(identifier, store=None):
     if not store.claim(identifier):
         return
     executable = Path(sys.executable)
-    if os.name == 'nt':
+    if os.name == 'nt' and not getattr(sys, 'frozen', False):
         executable = executable.with_name('pythonw.exe')
     env = dict(os.environ, SCHOOL_MCP_BROWSER_HEADED='0', PYTHONUTF8='1')
     try:
         from .background_process import spawn
         process = spawn([str(executable), '-m', 'school_mcp', 'script-worker',
                                     '--job-id', identifier, '--private-dir', str(store.path.parent.resolve())],
-                        cwd=str(Path(__file__).resolve().parents[2]), env=env)
+                        cwd=str(Path(sys.executable).parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[2]), env=env)
         from .login_runtime import process_started_at
         store.update(identifier, worker=dict(pid=process.pid, created=process_started_at(process.pid)))
         # Retain/reap the detached child without blocking MCP or emitting ResourceWarning.
@@ -266,6 +267,9 @@ def run(identifier, *, store=None, step=None, sleep=time.sleep, clock=now):
             failures = 0
         except Exception as exc:
             current = store.get(identifier)
+            from .safety_log import record
+            diagnostic = record(code=failure_code(exc), stage='background', service=job['service'], exc=exc,
+                                outcome='unknown' if current['effect_started'] else 'read_failed')
             # Only known network failures before a write may retry, never arbitrary application errors.
             transient = isinstance(exc, (TimeoutError, ConnectionError)) or any(
                 word in str(exc) for word in ('网络请求失败', '连接邮箱超时', '无法连接学校邮箱', '冷却', '请等待'))
@@ -277,9 +281,9 @@ def run(identifier, *, store=None, step=None, sleep=time.sleep, clock=now):
                 store.update(identifier, state='review', result={'outcome': 'operation_requires_review' if current['effect_started']
                                                                 else 'connection_or_precondition_failed',
                                                                 'reason_code': failure_code(exc),
-                                                                'error_type': type(exc).__name__})
+                                                                'error_type': type(exc).__name__, **diagnostic})
                 return
-            store.update(identifier, state='waiting', result={'outcome': 'read_retry_backoff', 'failures': failures})
+            store.update(identifier, state='waiting', result={'outcome': 'read_retry_backoff', 'failures': failures, **diagnostic})
         if store.get(identifier)['state'] in TERMINAL:
             return
         delay = max(job['poll_seconds'], min(3600, job['poll_seconds'] * 2 ** failures))

@@ -147,7 +147,7 @@ class Jobs:
         require(start is None or due-timedelta(days=1)<=start<=due,'监控开始时间必须在开放时间前24小时内。')
         end=stamp(stop_at) if stop_at else None
         require(end is None or end>due,'监控结束时间必须晚于开放时间。')
-        job = dict(exact_name=name, name_keywords=name_keywords, opens_at=due.isoformat(), expires_at=end.isoformat() if end else None if start else (due+timedelta(minutes=15)).isoformat(),
+        job = dict(created_at=datetime.now(timezone.utc).isoformat(), exact_name=name, name_keywords=name_keywords, opens_at=due.isoformat(), expires_at=end.isoformat() if end else None if start else (due+timedelta(minutes=15)).isoformat(),
                    monitor_from=start.isoformat() if start else None,poll_seconds=poll_seconds,
                    item_id=item_id, allow_non_cancellable=bool(allow_non_cancellable))
         target = hashlib.sha256(json.dumps([self.account,name or sorted(normalize_title(k) for k in name_keywords),due.isoformat()],ensure_ascii=False).encode()).hexdigest()
@@ -312,14 +312,44 @@ class RegistrationBrowser:
             require(isinstance(batch,list),'活动列表格式变化。')
             ids=tuple(r.get('id') for r in batch)
             require(not batch or ids not in seen,'分页没有前进，停止查找。')
-            seen.add(ids);records.extend(batch)
+            seen.add(ids);records.extend({**row, 'source_page': _ + 1} for row in batch)
             next_page=p.locator('.ant-pagination-next:visible')
             next_page.wait_for(timeout=5000)
             if 'ant-pagination-disabled' in (next_page.get_attribute('class') or ''):
-                return [summary(r) for r in records if normalize_title(keyword) in normalize_title(r.get('itemName',''))]
+                return [{**summary(r), 'source_page': r['source_page']} for r in records if normalize_title(keyword) in normalize_title(r.get('itemName',''))]
             with p.expect_response(lambda r:urlsplit(r.url).path.endswith(LIST),timeout=30000) as nxt:next_page.click()
             response=nxt.value
         raise YoungError('活动列表超过读取上限，无法保证匹配唯一。')
+
+    def listing_page(self, page_number=1):
+        require(type(page_number) is int and 1 <= page_number <= 30, '页码须为 1–30。')
+        response = self.start_listing()
+        seen = set()
+        for current in range(1, page_number + 1):
+            if self.policy_error:
+                raise self.policy_error
+            require(self.error is None, self.error or '')
+            data = response.json()
+            require(isinstance(data, dict) and data.get('success') is True, '活动列表读取失败，不能视为空结果。')
+            result = data.get('result') or {}
+            batch = result.get('records')
+            require(isinstance(batch, list), '活动列表格式变化。')
+            ids = tuple(r.get('id') for r in batch)
+            require(not batch or ids not in seen, '分页没有前进，停止查询。')
+            seen.add(ids)
+            next_button = self.page.locator('.ant-pagination-next:visible')
+            next_button.wait_for(timeout=5000)
+            has_next = 'ant-pagination-disabled' not in (next_button.get_attribute('class') or '')
+            if current == page_number:
+                return {'projects': [summary(r) for r in batch], 'page': current,
+                        'count': len(batch), 'has_next': has_next,
+                        'next_page': current + 1 if has_next and current < 30 else None,
+                        'scope': '本人可见报名中项目的本页列表；不代表个人报名资格或全站总数',
+                        'content_is_untrusted': True}
+            require(has_next, '请求页码超过当前列表范围。')
+            with self.page.expect_response(lambda r: urlsplit(r.url).path.endswith(LIST), timeout=30000) as nxt:
+                next_button.click()
+            response = nxt.value
 
     def detail(self, item_id):
         require(self.token,'缺少当前会话请求凭据。')
@@ -331,6 +361,21 @@ class RegistrationBrowser:
         require(isinstance(d,dict) and d.get('success') is True and isinstance(d.get('result'),dict),'活动详情无有效数据。')
         require(d['result'].get('id')==item_id,'活动详情标识不一致。')
         return d['result']
+
+    def children(self, item_id):
+        require(self.token, '缺少当前会话请求凭据。')
+        network.limiter.acquire('young')
+        response = self.context.request.get(BASE + '/item/scItem/selectSignChirdItem',
+            params={'id': item_id}, headers={'X-Access-Token': self.token}, max_redirects=0, timeout=15000)
+        network.limiter.response('young', response.status, response.headers)
+        require(response.status == 200, '系列场次读取失败。')
+        data = response.json()
+        require(isinstance(data, dict) and data.get('success') is True
+                and isinstance(data.get('result'), list), '系列场次格式变化。')
+        rows = data['result']
+        require(len(rows) <= 1000 and all(isinstance(row, dict) and row.get('id') for row in rows),
+                '系列场次过多或标识缺失，停止读取。')
+        return rows
 
     def locate(self, job, *, allow_missing=False):
         records=self.listing(job.get('exact_name') or job['name_keywords'][0])
@@ -425,6 +470,57 @@ def find_projects(keyword):
         raise
     except Exception:
         raise YoungError('项目查询未完成；请检查连接或冷却状态。') from None
+
+
+def list_projects(page=1):
+    require(type(page) is int and 1 <= page <= 30, '页码须为 1–30。')
+    try:
+        with RegistrationBrowser(load_session()).open() as browser:
+            return browser.listing_page(page)
+    except YoungError:
+        raise
+    except Exception:
+        raise YoungError('项目列表未能读取，请检查连接；不能视为空列表。') from None
+
+
+def project_view(detail):
+    output = summary(detail)
+    for key in ('moduleName', 'itemCategoryName', 'businessDeptName', 'applyRange', 'rangeDeptName',
+                'njName', 'formName', 'placeInfo', 'applyWay', 'teamSize', 'applyStatus',
+                'examineStatus', 'canSubmitWork', 'attaEndTime', 'attaType'):
+        value = detail.get(key)
+        output[key] = value if isinstance(value, (str, int, float, bool)) or value is None else None
+    for key in ('baseContent', 'conceive'):
+        soup = BeautifulSoup(str(detail.get(key) or ''), 'html.parser')
+        for tag in soup.select('script,style'):
+            tag.decompose()
+        text = soup.get_text('\n', strip=True)
+        output[key] = text[:12000]
+        output[key + '_truncated'] = len(text) > 12000
+    return output
+
+
+def read_project(item_id, page=1, child_id=None):
+    require(isinstance(item_id, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,100}', item_id), '项目编号须来自列表。')
+    require(child_id is None or isinstance(child_id, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,100}', child_id), '场次编号须来自系列列表。')
+    try:
+        with RegistrationBrowser(load_session()).open() as browser:
+            listed = browser.listing_page(page)
+            require(any(row['id'] == item_id for row in listed['projects']), '该页未找到此项目，请重新查询列表和页码。')
+            detail = browser.detail(item_id)
+            children = browser.children(item_id) if str(detail.get('itemCategory')) == '1' else []
+            if child_id:
+                require(any(row['id'] == child_id for row in children), '场次不属于所选系列，不读取其他项目。')
+                detail = browser.detail(child_id)
+            return dict(project=project_view(detail), parent_id=item_id if child_id else None,
+                        children=[summary(row) for row in children[:100]], child_count=len(children),
+                        children_truncated=len(children) > 100, source_page=page,
+                        content_is_untrusted=True, read_only=True, registration_executed=False,
+                        note='详情用于核对时间、资格和作品要求；系列、作品及额外资料报名不能套用普通单次报名执行器。')
+    except YoungError:
+        raise
+    except Exception:
+        raise YoungError('项目详情未能读取，请检查连接；不执行报名。') from None
 
 
 def run_job(job_id):

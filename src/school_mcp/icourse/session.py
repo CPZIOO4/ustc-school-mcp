@@ -4,9 +4,16 @@ from datetime import datetime, timezone
 from ..mail.config import local_dir
 from ..mail.credentials import _dpapi
 from ..workflow_store import require, WorkflowError
+from .. import session_native as native
 
 
 def save_session(cookies, user_id, user_agent):
+    if native.enabled():
+        selected = native.invoke('sessions_filter', 'icourse', WorkflowError, state={'cookies': cookies})['cookies']
+        native.invoke('sessions_write', 'icourse', WorkflowError, path=local_dir() / 'icourse-session.dpapi',
+                      value=dict(cookies=selected, user_id=str(user_id), user_agent=user_agent,
+                                 saved_at=datetime.now(timezone.utc).isoformat()))
+        return
     require(str(user_id).isdigit(), '无法确认评课账号。')
     selected = [c for c in cookies if c.get('domain') in {'icourse.club','.icourse.club'}]
     require(selected, '未获得评课会话。')
@@ -18,6 +25,8 @@ def save_session(cookies, user_id, user_agent):
 
 
 def load_session():
+    if native.enabled():
+        return native.invoke('sessions_read', 'icourse', WorkflowError, path=local_dir() / 'icourse-session.dpapi')
     try:
         data=json.loads(_dpapi((local_dir()/'icourse-session.dpapi').read_bytes(),decrypt=True))
         require(isinstance(data,dict) and str(data.get('user_id','')).isdigit() and isinstance(data.get('cookies'),list) and bool(data['cookies']), '评课会话格式异常。')

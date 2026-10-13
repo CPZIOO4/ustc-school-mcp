@@ -8,6 +8,8 @@
 
 ## AI 执行步骤
 
+需要统一智能体入口时，另按 [学校智能体部署](school-agent.md) 显式配置 `--service agent` 并加载 `school-agent` Skill；原九站独立配置方式继续可用。
+
 在项目根目录运行，顺序不变。无需 Git；目录含中文或空格也可以。PowerShell 调用带空格的绝对可执行文件路径时用 `& "路径"`，不要将命令数组拼接为未转义字符串。
 
 ```powershell

@@ -5,9 +5,10 @@ import hashlib
 import json
 import re
 import sqlite3
+import unicodedata
 from contextlib import closing
 from datetime import datetime, timezone, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from mcp.types import ToolAnnotations
 
@@ -17,9 +18,10 @@ from .workflow_store import digest
 
 SERVICES = {'bb', 'young', 'icourse', 'nan7'}
 ID = re.compile(r'^[a-f0-9]{32}$')
-STATES = {'ready', 'scheduled', 'monitoring', 'checking', 'submitting', 'executing',
+TaskState = Literal['ready', 'scheduled', 'monitoring', 'checking', 'submitting', 'executing',
           'uncertain', 'verified', 'stopped', 'stopped_before_write', 'expired', 'cancelled',
-          'waiting', 'running', 'completed', 'review', 'failed'}
+          'waiting', 'running', 'completed', 'review', 'failed']
+STATES = set(get_args(TaskState))
 PHASES = {'prepared', 'preflight', 'submit_requested', 'readback', 'uploading',
           'new_attempt_requested', 'materials_verified', 'publish_requested',
           'cooldown', 'read_backoff', 'waiting_for_project', 'waiting_for_open', 'waiting_for_button'}
@@ -74,6 +76,47 @@ def parse_time(value):
     if date.tzinfo is None:
         raise ValueError('missing timezone')
     return date
+
+
+def clean_label(value):
+    if not isinstance(value, str):
+        return None
+    return ' '.join(''.join(c for c in value if unicodedata.category(c) not in {'Cc', 'Cf'}).split())[:160] or None
+
+
+def metadata(service, payload, kind='primary'):
+    if kind == 'script':
+        label = payload.get('label')
+    elif service == 'bb':
+        label = payload.get('assignment', {}).get('title')
+    elif service == 'young':
+        label = payload.get('resolved_name') or payload.get('exact_name')
+        if not label and isinstance(payload.get('name_keywords'), list):
+            label = ' / '.join(str(v) for v in payload['name_keywords'])
+    else:
+        label = payload.get('preview', {}).get('course_title' if service == 'icourse' else 'title')
+    source = 'prepared_at' if service == 'bb' and kind == 'primary' else 'created_at'
+    created = payload.get(source)
+    try:
+        created = parse_time(created).isoformat() if created else None
+    except (ValueError, TypeError):
+        created = None
+    return dict(label=clean_label(label), created_at=created, created_at_source=source if created else None,
+                created_at_known=created is not None)
+
+
+def matches(item, keyword, states, after, before):
+    if states and item['state'] not in states:
+        return False
+    if keyword and unicodedata.normalize('NFKC', keyword).casefold() not in unicodedata.normalize('NFKC', item.get('label') or '').casefold():
+        return False
+    if after or before:
+        if not item.get('created_at'):
+            return False
+        when = parse_time(item['created_at'])
+        if after and when < after or before and when >= before:
+            return False
+    return True
 
 
 def route(service, identifier, state, phase, payload, result):
@@ -135,13 +178,23 @@ def route(service, identifier, state, phase, payload, result):
     return item
 
 
-def query(service, task_id=None, task_kind='primary', limit=10, offset=0):
+def query(service, task_id=None, task_kind='primary', limit=10, offset=0,
+          keyword='', states=None, created_after=None, created_before=None, include_summary=True):
     if (service not in SERVICES or task_kind not in {'primary', 'script'}
             or task_kind == 'script' and service != 'bb'
             or type(limit) is not int or not 1 <= limit <= 50
             or type(offset) is not int or not 0 <= offset <= 10000
             or task_id is not None and (not isinstance(task_id, str) or not ID.fullmatch(task_id))):
         raise ValueError('参数无效；script仅用于BB，limit为1–50，offset为0–10000，ID来自任务结果。')
+    if (not isinstance(keyword, str) or len(keyword) > 160 or type(include_summary) is not bool
+            or states is not None and (not isinstance(states, list) or not all(isinstance(s, str) and s in STATES for s in states))
+            or task_id and (keyword or states or created_after or created_before)
+            or not include_summary and (keyword or created_after or created_before)):
+        raise ValueError('筛选参数无效；名称/日期筛选需要include_summary，任务ID详情不同时筛选。')
+    after = parse_time(created_after) if created_after else None
+    before = parse_time(created_before) if created_before else None
+    if after and before and after >= before:
+        raise ValueError('创建时间范围为空；起始包含，结束不包含，需带时区。')
     base = dict(service=service, task_kind=task_kind, network_checked=False,
                 writes_performed=False, retry_write_allowed=False, content_is_untrusted=True)
     try:
@@ -163,7 +216,7 @@ def query(service, task_id=None, task_kind='primary', limit=10, offset=0):
         with closing(sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True, timeout=2)) as db:
             db.execute('PRAGMA query_only=ON')
             if task_kind == 'script':
-                return script_query(db, owner, base, task_id, limit, offset)
+                return script_query(db, owner, base, task_id, limit, offset, keyword, states, after, before, include_summary)
             table = 'plans' if service in {'icourse','nan7'} else 'jobs'
             where, args = 'account=?', [owner]
             if table == 'plans':
@@ -172,27 +225,44 @@ def query(service, task_id=None, task_kind='primary', limit=10, offset=0):
                 where += ' AND id=?'; args.append(task_id)
                 fields = "id,state," + ("NULL" if service == 'young' else 'phase') + ',payload,result'
             else:
-                fields = "id,state," + ("NULL" if service == 'young' else 'phase')
+                fields = "id,state," + ("NULL" if service == 'young' else 'phase') + (',payload' if include_summary else '')
             rows = db.execute(f'SELECT {fields} FROM {table} WHERE {where} ORDER BY rowid DESC LIMIT ? OFFSET ?',
-                              (*args, 1 if task_id else limit + 1, 0 if task_id else offset)).fetchall()
-            items = []
-            for row in rows[:limit]:
+                              (*args, 1 if task_id else limit + 1, 0 if task_id else offset))
+            items, scanned, used, more = [], 0, 0, False
+            for row in rows:
+                if scanned >= limit:
+                    more = True
+                    break
+                if (task_id or include_summary) and len(row[3]) > 100 * 1024 * 1024:
+                    raise ValueError('oversized record')
+                if not task_id and include_summary and used + len(row[3]) > 125 * 1024 * 1024:
+                    more = True
+                    break
+                scanned += 1
                 if not ID.fullmatch(row[0]):
                     raise ValueError('bad identifier')
+                payload = decode(row[3]) if task_id or include_summary else {}
+                if task_id or include_summary:
+                    used += len(row[3])
                 if task_id:
-                    items.append(route(service, row[0], row[1], row[2], decode(row[3]), decode(row[4]) if row[4] else {}))
+                    item = route(service, row[0], row[1], row[2], payload, decode(row[4]) if row[4] else {})
                 else:
-                    items.append(summary(service, *row))
+                    item = summary(service, *row[:3])
+                if include_summary:
+                    item.update(metadata(service, payload))
+                if matches(item, keyword, states, after, before):
+                    items.append(item)
             return dict(base, state='not_found' if task_id and not items else 'completed', items=items,
-                        **pagination(offset, limit, not task_id and len(rows) > limit),
-                        scope='current_account_local_records', details_checked=bool(task_id))
+                        **pagination(offset, scanned, more), scanned_count=scanned,
+                        scope='current_account_local_records', details_checked=bool(task_id),
+                        pagination='bounded_storage_scan', unknown_dates_match_date_filters=False)
     except Exception:
         # No raw exception, SQL, ciphertext, user content or partial results escape.
         return dict(base, state='records_unavailable', items=[], next_offset=None,
                     note='本机记录不可读或结构已变化；保留原记录，不重建任务或重发。')
 
 
-def script_query(db, owner, base, task_id, limit, offset):
+def script_query(db, owner, base, task_id, limit, offset, keyword='', states=None, after=None, before=None, include_summary=True):
     rows = db.execute('SELECT id,payload FROM jobs ' + ('WHERE id=? ' if task_id else '') +
                       'ORDER BY rowid DESC LIMIT ? OFFSET ?',
                       ((task_id,) if task_id else ()) + (1 if task_id else limit + 1, 0 if task_id else offset)).fetchall()
@@ -204,6 +274,10 @@ def script_query(db, owner, base, task_id, limit, offset):
         if not ID.fullmatch(identifier):
             raise ValueError('bad identifier')
         item = summary('bb', identifier, job['state'], kind='script')
+        if include_summary:
+            item.update(metadata('bb', job, 'script'))
+        if not matches(item, keyword, states, after, before):
+            continue
         if task_id:
             item.update(stage='needs_review', reason_code='check_worker_and_original_operation',
                         next_step=step('school_bb_script_status', job_id=identifier), worker_checked=False)
@@ -237,6 +311,8 @@ def install(mcp, service):
     @mcp.tool(name=f'school_{service}_tasks', annotations=ToolAnnotations(
         readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False))
     def tasks(task_id: str | None = None, task_kind: Literal['primary','script'] = 'primary',
-              limit: int = 10, offset: int = 0) -> dict[str, Any]:
-        """恢复当前账号已有任务：省略ID分页列记录，传ID返回阶段、停止原因与固定下一步工具参数。primary为本站业务；script仅用于BB定时提交，需另查一遍。只读本机，不联网、不重新执行、不授予提交权限。列表历史状态不是现场结果；先查详情再按next_step读原预览/核验回执/检查调度器。结果不明禁止重建任务；没有记录不等于网站没有提交。"""
-        return query(service, task_id, task_kind, limit, offset)
+              limit: int = 10, offset: int = 0, keyword: str = '', states: list[TaskState] | None = None,
+              created_after: str | None = None, created_before: str | None = None,
+              include_summary: bool = True) -> dict[str, Any]:
+        """恢复当前账号已有任务。默认返回短名称和创建时间；旧记录缺时间返回null，不推断。keyword按名称匹配，states按存储状态筛选，created_after含起点/created_before不含终点，日期需带时区。limit限制扫描条数而非匹配条数，本页空仍须检查next_offset。include_summary=false省略名称和时间，不能同时筛名称/日期。传ID看详情，不同时筛选。primary为本站业务，BB另查script。只读本机，不授予执行权限；历史状态不等于现场结果，按next_step恢复原预览或核验，结果不明禁止重建。"""
+        return query(service, task_id, task_kind, limit, offset, keyword, states, created_after, created_before, include_summary)

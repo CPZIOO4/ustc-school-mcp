@@ -4,10 +4,10 @@ import argparse
 import json
 
 
-def main() -> None:
+def _main() -> None:
     parser = argparse.ArgumentParser(description="School MCP")
-    parser.add_argument("command", nargs="?", default="serve", choices=("serve", "doctor", "first-use", "setup", "mail-guide", "mail-bind", "mail-bind-status", "check", "bb-serve", "bb-setup", "bb-email-verification", "bb-login", "bb-check", "jw-serve", "jw-login", "jw-check", "library-serve", "library-login", "library-check", "teach-serve", "nan7-serve", "nan7-login", "icourse-serve", "icourse-login", "young-serve", "young-login", "young-registration-run", "young-registration-status", "young-registration-worker", "finance-serve", "finance-login", "finance-check", "script-worker"))
-    parser.add_argument("--service", action="append", choices=("mail", "bb", "jw", "library", "teach", "nan7", "icourse", "young", "finance"), help="Limit doctor or first-use to selected services; repeat for multiple services")
+    parser.add_argument("command", nargs="?", default="serve", choices=("serve", "doctor", "first-use", "setup", "mail-guide", "mail-bind", "mail-bind-status", "check", "bb-serve", "bb-setup", "bb-email-verification", "bb-login", "bb-check", "jw-serve", "jw-login", "jw-check", "library-serve", "library-login", "library-check", "teach-serve", "nan7-serve", "nan7-login", "icourse-serve", "icourse-login", "young-serve", "young-login", "young-registration-run", "young-registration-status", "young-registration-worker", "finance-serve", "finance-login", "finance-check", "script-worker", "agent-serve", "desktop", "portal-serve", "student-serve", "spaces-serve", "drive-serve", "vlab-serve", "web-serve", "digest-serve", "digest-worker"))
+    parser.add_argument("--service", action="append", choices=("mail", "bb", "jw", "library", "teach", "nan7", "icourse", "young", "finance", "agent", "portal", "student", "spaces", "drive", "vlab", "web", "digest"), help="Limit doctor or first-use to selected services; repeat for multiple services")
     parser.add_argument("--address", default="", help="Prefill the local setup window with this email address")
     parser.add_argument("--force-identity-login", action="store_true", help="Run the registered USTC identity flow even if the BB session is valid")
     parser.add_argument("--email-verification", action="store_true", help="Authorize bb-setup to read the connected mailbox for USTC login verification codes")
@@ -25,6 +25,20 @@ def main() -> None:
     parser.add_argument("--schedule-id", help="Native scheduled worker ID")
     parser.add_argument("--private-dir", help="Private directory for a scheduled worker")
     args = parser.parse_args()
+    if args.command in {name + '-serve' for name in ('portal', 'student', 'spaces', 'drive', 'vlab', 'web', 'digest')}:
+        import importlib
+        importlib.import_module('school_mcp.' + args.command.removesuffix('-serve') + '.server').run()
+        return
+    if args.command == 'digest-worker':
+        if not args.private_dir:
+            parser.error('digest-worker requires --private-dir')
+        from .digest.worker import run
+        run(args.private_dir)
+        return
+    if args.command == 'desktop':
+        from .desktop.server import main as desktop_main
+        desktop_main([])
+        return
     if (args.verify_runtime or args.check_connections) and args.command != 'first-use':
         parser.error('--verify-runtime/--check-connections require first-use')
     if (args.create_client_password or args.resume or args.replace_existing) and args.command != 'mail-bind':
@@ -91,6 +105,8 @@ def main() -> None:
     if args.service and args.command != "doctor":
         parser.error("--service requires doctor")
     if args.command == "doctor":
+        if 'agent' in (args.service or []):
+            parser.error('agent is a coordinator, not a school connection; use first-use --service agent')
         if args.headed or args.enable or args.disable or args.force_identity_login or args.email_verification:
             parser.error("doctor only checks existing connections and does not accept login or authorization flags")
         import logging
@@ -108,7 +124,7 @@ def main() -> None:
             parser.error("--headed is only supported for login commands")
         import os
         os.environ["SCHOOL_MCP_BROWSER_HEADED"] = "1"
-    if args.command in {"teach-serve", "nan7-serve", "icourse-serve", "young-serve", "finance-serve"}:
+    if args.command in {"agent-serve", "teach-serve", "nan7-serve", "icourse-serve", "young-serve", "finance-serve"}:
         from importlib import import_module
         adapter = args.command.removesuffix("-serve")
         import_module(f"school_mcp.{adapter}.server").run()
@@ -230,6 +246,23 @@ def main() -> None:
     else:
         from .server import run
         run()
+
+
+def main() -> None:
+    import sys
+    from .safety_log import record
+    from .recovery import classify
+    try:
+        return _main()
+    except SystemExit as exc:
+        if exc.code not in (None, 0):
+            record(stage='login' if any(a.endswith('-login') for a in sys.argv[1:2]) else 'background',
+                   outcome='unknown')
+        raise
+    except Exception as exc:
+        incident = record(code=classify(exc)[0], stage='background', exc=exc, outcome='unknown')
+        # Detached workers must never emit raw tracebacks to old redirected logs.
+        raise SystemExit('学校后台操作中断，请查询原任务。错误编号：' + incident['error_id']) from None
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ import unicodedata
 
 from pydantic import BaseModel, ConfigDict, Field
 from .workflows import TYPES, workflow_guide
+from ..input_guidance import guidance, field
 
 Business = Literal['auto', 'daily', 'travel', 'loan', 'remuneration', 'internal_transfer']
 Identifier = Annotated[str, Field(pattern=r'^[A-Za-z0-9_-]{1,64}$')]
@@ -72,10 +73,48 @@ LINE_KINDS = {'daily': {'invoice','other'}, 'travel': {'invoice','allowance','ot
               'loan': {'loan_detail'}, 'remuneration': {'payroll'}, 'internal_transfer': {'transfer_detail'}}
 
 
+def missing_input_guide(issues):
+    fields = []
+    for issue in issues:
+        name, code = issue['field'], issue['code']
+        source = 'user'
+        selector = None
+        if code in {'missing_information','unconfirmed_information','duplicate_fact'}:
+            path, selector = '/request/facts', {'field': name}
+            expected = 'Fact对象：field为此字段名，value为已核对说明，confirmed仅在实际核对后为true'
+        elif code == 'choose_business_type':
+            path, expected = '/request/business_type', 'daily | travel | loan | remuneration | internal_transfer'
+        elif code == 'confirm_contract_requirement':
+            path, expected = '/request/contract_required', 'boolean；确认是否涉及合同，未知保留null'
+        elif code in {'missing_claim_amount','nonpositive_claim_amount','amount_mismatch'}:
+            path, expected = '/request/claim_amount', '人民币正数十进制字符串，最多两位小数'
+        elif name == 'currency' and code == 'unsupported_currency' and issue.get('scope') != 'line':
+            path, expected, source = '/request/currency', 'CNY；非人民币事项交人工核实，不自行换算', 'manual_review'
+        elif code in {'missing_amount_lines','duplicate_line_id','missing_amount','nonpositive_amount',
+                      'exceeds_document_amount','unconfirmed_amount','unsupported_currency','missing_document_amount',
+                      'missing_amount_evidence','unknown_document','invoice_reference_mismatch','line_kind_mismatch',
+                      'manual_amount_basis_review'}:
+            path, selector = '/request/lines', None if name == 'lines' else {'line_id': name}
+            expected = 'AmountLine对象：金额为十进制字符串；document_amount为票面金额，document_ids引用本次材料ID'
+            source = 'verified_document'
+        else:
+            path = '/request/documents'
+            selector = {'kind': name} if code == 'missing_material' else {'document_id': name}
+            expected = 'Document对象：实际材料的类型、可用性、核对状态；发票含完整查重标识及真实状态'
+            source = 'verified_document'
+        if code in {'manual_amount_basis_review','possible_duplicate_invoice','invoice_reused','duplicate_line_id','duplicate_document_id'}:
+            source = 'manual_review'
+        fields.append(field(path, issue['message'], expected, source=source, code=code, selector=selector))
+    return guidance('school_finance_preflight', fields, ['request'])
+
+
 def preflight(request: PreflightRequest) -> dict:
+    from ..desktop import native_core
+    if native_core.enabled():
+        return native_core.call('finance_preflight', request.model_dump())
     issues = []
-    def issue(code, field, message):
-        issues.append({'code':code, 'field':field, 'message':message})
+    def issue(code, field, message, scope=None):
+        issues.append({'code':code, 'field':field, 'message':message, **({'scope':scope} if scope else {})})
 
     facts = {}
     for fact in request.facts:
@@ -153,7 +192,7 @@ def preflight(request: PreflightRequest) -> dict:
         if not line.confirmed:
             issue('unconfirmed_amount', line.line_id, '请核对金额提取结果和拟申请金额。')
         if line.currency != request.currency or line.currency != 'CNY':
-            issue('unsupported_currency', line.line_id, '本版只核对人民币金额，不自行换算或合并外币。')
+            issue('unsupported_currency', line.line_id, '本版只核对人民币金额，不自行换算或合并外币。', scope='line')
         if line.kind == 'invoice' and line.document_amount is None:
             issue('missing_document_amount', line.line_id, '请补充对应发票的票面金额。')
         if not line.document_ids:
@@ -193,7 +232,8 @@ def preflight(request: PreflightRequest) -> dict:
             'duplicate_check':{'scope':'provided_documents_only',
                                'identities_complete':all(doc.dedup_key for doc in request.documents if doc.kind == 'invoice'),
                                'history_checked':False},
-            'issues':issues, 'next_action':'resolve_issues_and_rerun' if issues else 'verify_current_form_and_requirements',
+            'issues':issues, 'input_guidance':missing_input_guide(issues) if issues else None,
+            'next_action':'resolve_issues_and_rerun' if issues else 'verify_current_form_and_requirements',
             'amounts':{'currency':request.currency, 'claim_amount':request.claim_amount,
                        'observed_line_totals':{key:format(value,'.2f') for key,value in totals.items()},
                        'amounts_complete':amounts_complete, 'claim_minus_lines':format(difference,'.2f') if difference is not None else None,

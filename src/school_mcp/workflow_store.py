@@ -28,7 +28,7 @@ def require(condition, message):
 
 class PlanStore:
     def __init__(self, service, account, directory=None):
-        require(service in {'jw', 'nan7', 'icourse'}, '未知业务。')
+        require(service in {'jw', 'nan7', 'icourse', 'spaces', 'drive', 'vlab', 'student'}, '未知业务。')
         self.service, self.account = service, account
         self.path = (directory or local_dir()) / 'business-plans.sqlite3'
 
@@ -52,6 +52,7 @@ class PlanStore:
         sha = digest({'content': content, 'snapshot': snapshot, 'session': session})
         key = digest([self.service, self.account, target])
         plan = dict(content=content, snapshot=snapshot, session=session, preview=preview,
+                    created_at=datetime.now(timezone.utc).isoformat(),
                     expires_at=(datetime.now(timezone.utc) + timedelta(hours=2)).isoformat())
         with self.db() as db:
             row = db.execute("SELECT id FROM plans WHERE service=? AND account=? AND target=? AND digest=? AND state NOT IN ('stopped', 'expired')", (self.service, self.account, key, sha)).fetchone()
@@ -84,9 +85,13 @@ class PlanStore:
         expired = datetime.fromisoformat(plan['expires_at']) <= datetime.now(timezone.utc)
         state = 'expired' if row[1] == 'ready' and expired else row[1]
         result = json.loads(_dpapi(row[4], decrypt=True)) if row[4] else None
-        execute_tool={'nan7':'school_nan7_publish_offer','icourse':'school_icourse_publish_review','jw':None}[self.service]
-        status_tool={'nan7':'school_nan7_offer_status','icourse':'school_icourse_review_status','jw':None}[self.service]
-        verification_available=self.service=='icourse' or self.service=='nan7' and bool((result or {}).get('offer_id'))
+        execute_tool={'nan7':'school_nan7_publish_offer','icourse':'school_icourse_publish_review','jw':None,
+                      'spaces':'school_spaces_execute','drive':'school_drive_execute','vlab':'school_vlab_execute',
+                      'student':'school_student_submit_application'}[self.service]
+        status_tool={'nan7':'school_nan7_offer_status','icourse':'school_icourse_review_status','jw':None,
+                     'spaces':'school_spaces_status','drive':'school_drive_status','vlab':'school_vlab_status',
+                     'student':'school_student_application_status'}[self.service]
+        verification_available=self.service in {'icourse','spaces','drive','vlab','student'} or self.service=='nan7' and bool((result or {}).get('offer_id'))
         return dict(plan_id=identifier, content_sha256=row[0], state=state, phase=row[2],
                     preview=plan['preview'], result=result, can_execute=state == 'ready',
                     next_tool=execute_tool if state=='ready' else status_tool if state in {'executing','uncertain'} else None,

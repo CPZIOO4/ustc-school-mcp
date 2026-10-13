@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Annotated
+from pydantic import Field
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
@@ -40,9 +41,22 @@ async def school_young_read_home(max_chars: int = 4000) -> dict[str, Any]:
 
 
 @mcp.tool(annotations=READ)
-async def school_young_find_projects(keyword: str) -> dict[str, Any]:
-    """逐页查询当前报名项目，失败与空结果分开。不包含尚未开放的项目。"""
+async def school_young_find_projects(keyword: Annotated[str, Field(min_length=1, max_length=200)]) -> dict[str, Any]:
+    """按非空关键词逐页搜索当前报名项目。浏览列表或统计本页请用list_projects，不传空关键词；不含尚未开放项目。"""
     return await asyncio.to_thread(registration.find_projects, keyword)
+
+
+@mcp.tool(annotations=READ)
+async def school_young_list_projects(page: Annotated[int, Field(ge=1, le=30)] = 1) -> dict[str, Any]:
+    """浏览本人可见的报名中项目一页；无需关键词，返回本页数量和下一页。列表可见不代表本人有资格报名；不执行报名。"""
+    return await asyncio.to_thread(registration.list_projects, page)
+
+
+@mcp.tool(annotations=READ)
+async def school_young_read_project(item_id: str, page: Annotated[int, Field(ge=1, le=30)] = 1,
+                                    child_id: str | None = None) -> dict[str, Any]:
+    """读取列表中项目的详情、报名窗口、资格及作品要求；系列返回最多100条场次摘要。item_id及page来自list_projects或find_projects的source_page；读系列场次详情再传本次返回的child_id。校验项目仍在该页、场次属于父项目，不读报名人员名单，不执行报名或上传。"""
+    return await asyncio.to_thread(registration.read_project, item_id, page, child_id)
 
 
 @mcp.tool(annotations=WRITE)

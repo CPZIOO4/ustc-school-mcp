@@ -19,6 +19,13 @@ bb-submissions.sqlite3*
 business-plans.sqlite3*
 young-registrations.sqlite3*
 script-jobs.sqlite3*
+agent-tasks.sqlite3*
+desktop-chats.sqlite3*
+digest.sqlite3*
+digest-worker.lock
+digest-cycle.lock
+calendar-exports/
+digest-ocr-cache/
 *.session.tmp
 *-session.tmp
 mail-setup-*/
@@ -42,6 +49,9 @@ trace.zip
 node_modules/
 dist/
 build/
+native/target/
+native/gen/
+native/resources/
 .venv/
 venv/
 __pycache__/
@@ -52,3 +62,4 @@ __pycache__/
 # OS metadata
 .DS_Store
 Thumbs.db
+native/core/target/

@@ -68,6 +68,18 @@ class RuntimeVersionTests(unittest.TestCase):
         self.assertEqual(report['actions'][0], 'sync_dependencies')
         self.assertTrue(report['dependencies_changed'])
 
+    def test_public_catalog_changes_and_missing_resource_are_detected(self):
+        folder = self.package / 'agent'
+        folder.mkdir()
+        (folder / 'catalog.py').write_text('# synthetic catalog loader')
+        resource = folder / 'catalog_data.json'
+        resource.write_text('{"synthetic":1}')
+        monitor = RuntimeMonitor(self.package)
+        resource.write_text('{"synthetic":2}')
+        self.assertEqual(monitor.report()['state'], 'restart_required')
+        resource.unlink()
+        self.assertEqual(monitor.report()['state'], 'check_failed')
+
     def test_installed_dependency_metadata_change_is_detected(self):
         with patch('school_mcp.runtime_version.metadata.version', return_value='1.0'):
             monitor = RuntimeMonitor(self.package)
@@ -109,6 +121,7 @@ class RuntimeVersionTests(unittest.TestCase):
         from mcp.client.stdio import stdio_client
         import school_mcp.runtime_version as module
         shutil.copyfile(module.__file__, self.package / 'runtime_version.py')
+        shutil.copyfile(Path(module.__file__).with_name('safety_log.py'), self.package / 'safety_log.py')
         (self.package / '__init__.py').write_text('from .runtime_version import MONITOR\n')
         target = self.package / 'feature.py'
         target.write_text('x=1\n')

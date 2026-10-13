@@ -1,0 +1,32 @@
+[package]
+name = "ustc-school-desktop"
+version = "0.2.0"
+description = "Native desktop host for the local USTC school agent"
+edition = "2021"
+license = "MIT"
+rust-version = "1.99"
+
+[lib]
+name = "school_desktop"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+tokio = { version = "1", features = ["sync", "time"] }
+url = "2"
+open = "5"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1

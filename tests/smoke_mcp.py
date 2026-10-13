@@ -52,6 +52,8 @@ async def check_recovery_tools(session, tools):
         recovered = await session.call_tool(task_tool.name, {})
         assert not recovered.isError and recovered.structuredContent['state'] == 'identity_unavailable'
         assert recovered.structuredContent['writes_performed'] is False
+        assert task_tool.inputSchema['properties']['include_summary']['default'] is True
+        assert {'keyword','states','created_after','created_before'} <= task_tool.inputSchema['properties'].keys()
     assert tool.annotations.readOnlyHint and not tool.annotations.openWorldHint
     assert tool.outputSchema is not None
     result = await session.call_tool(tool.name, {'expected_fingerprint': MONITOR.report()['disk_fingerprint']})
@@ -208,7 +210,7 @@ async def main() -> None:
                     status = await session.call_tool(status_name, {})
                     assert status.isError is False and isinstance(status.structuredContent, dict)
                     if adapter == "young":
-                        assert names == {"school_young_query", "school_young_status", "school_young_reconnect", "school_young_check_connection", "school_young_read_home", "school_young_find_projects", "school_young_schedule_registration", "school_young_run_registration", "school_young_registration_status", "school_young_cancel_registration_task", "school_young_schedule_status", "school_young_cancel_schedule"}
+                        assert names == {"school_young_query", "school_young_status", "school_young_reconnect", "school_young_check_connection", "school_young_read_home", "school_young_list_projects", "school_young_read_project", "school_young_find_projects", "school_young_schedule_registration", "school_young_run_registration", "school_young_registration_status", "school_young_cancel_registration_task", "school_young_schedule_status", "school_young_cancel_schedule"}
                         assert status.structuredContent["configured"] is False
                         missing = await session.call_tool("school_young_read_home", {})
                         assert missing.isError is True
@@ -222,6 +224,9 @@ async def main() -> None:
                         preparation = await session.call_tool('school_finance_preflight', {'request': {}})
                         assert not preparation.isError and preparation.structuredContent['state'] == 'needs_input'
                         assert preparation.structuredContent['safe_to_submit'] is False
+                        guide = preparation.structuredContent['input_guidance']
+                        assert guide['resume']['tool'] == 'school_finance_preflight'
+                        assert guide['resume']['ready_to_call'] is False and guide['fields']
                         preflight_tool = next(tool for tool in tools.tools if tool.name == 'school_finance_preflight')
                         assert preflight_tool.annotations.readOnlyHint and not preflight_tool.annotations.openWorldHint
                         complete = await session.call_tool('school_finance_preflight', {'request': sample()})

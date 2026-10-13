@@ -114,7 +114,11 @@ class AcademicClient:
             text=((item.get('scheduleText') or {}).get('dateTimePlacePersonText') or {}).get('textZh') or ''
             slots=schedule_slots(text,row['campus'])
             if not isinstance(row['credits'],(int,float)):
-                return dict(state='needs_input',missing_fields=['official_course_credits'],next_action='verify_official_course_data',candidates=[])
+                from ..input_guidance import attach, field
+                return attach(dict(state='needs_input',missing_fields=['official_course_credits'],next_action='verify_official_course_data',candidates=[]),
+                              'school_jw_planning_context',
+                              [field('/semester_id','官方课程学分缺失，需核实后重查','原学期ID；学分须来自官方数据，不能猜填',source='official_data')],
+                              ['semester_id'], {'semester_id':semester_id})
             candidates.append(dict(semester_id=context['semester']['id'],lesson_id=str(row['lesson_id']),course_code=row['course_code'],course_name=row['course_name'],credits=row['credits'],slots=slots,schedule_known=bool(slots),required=True,source='official'))
         return dict(state='context_ready',semester=context['semester'],candidates=candidates,missing_schedule_ids=[c['lesson_id'] for c in candidates if not c['schedule_known']],
                     next_action='combine_with_offering_candidates_then_plan', note='已选课程默认必须保留；只在用户明确要求调整的情景方案中修改required，不执行真实退课。',content_is_untrusted=True)

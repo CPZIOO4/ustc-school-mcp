@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 
 from ..bb.identity import _load, _save, load_credentials
 from ..bb.session import BBError
+from .. import session_native as native
+from ..mail.config import local_dir
 
 HOST = "young.ustc.edu.cn"
 ORIGIN = "https://" + HOST
@@ -18,6 +20,8 @@ class YoungError(ServiceError):
 
 
 def own_state(state: dict) -> dict:
+    if native.enabled():
+        return native.invoke('sessions_filter', 'young', YoungError, state=state)
     return {"cookies": [c for c in state.get("cookies", []) if c.get("domain", "").lstrip(".") == HOST],
             "origins": [o for o in state.get("origins", []) if o.get("origin") == ORIGIN]}
 
@@ -28,6 +32,12 @@ def save_session(state: dict, account: str, user_agent: str | None) -> None:
 
 
 def load_session() -> dict:
+    if native.enabled():
+        try:
+            account = load_credentials()['username']
+        except BBError:
+            raise YoungError('请先登录学校统一身份。', code='authentication_required') from None
+        return native.invoke('sessions_read', 'young', YoungError, path=local_dir() / 'young-session.dpapi', account=account)
     try:
         data = _load("young-session.dpapi")
         if data.get("account") != load_credentials()["username"]:

@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from ..bb.identity import _load, _save, load_credentials
 from ..bb.session import BBError
+from .. import session_native as native
+from ..mail.config import local_dir
 
 HOST = 'cwzh.ustc.edu.cn'
 ORIGIN = 'https://' + HOST
@@ -18,6 +20,8 @@ class FinanceError(ServiceError):
 
 
 def own_state(state):
+    if native.enabled():
+        return native.invoke('sessions_filter', 'finance', FinanceError, state=state)
     return {'cookies': [c for c in state.get('cookies', []) if c.get('domain', '').lstrip('.') == HOST],
             'origins': [o for o in state.get('origins', []) if o.get('origin') == ORIGIN]}
 
@@ -28,6 +32,12 @@ def save_session(state, account, user_agent=None):
 
 
 def load_session():
+    if native.enabled():
+        try:
+            account = load_credentials()['username']
+        except BBError:
+            raise FinanceError('请先登录学校统一身份。', code='authentication_required') from None
+        return native.invoke('sessions_read', 'finance', FinanceError, path=local_dir() / 'finance-session.dpapi', account=account)
     try:
         value = _load('finance-session.dpapi')
         if value['account'] != load_credentials()['username'] or not isinstance(value['state'], dict):

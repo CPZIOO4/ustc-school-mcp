@@ -9,10 +9,27 @@ description = "Local MCP adapters for personal school services"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
-dependencies = ["mcp>=1.26,<2", "httpx>=0.28,<1", "beautifulsoup4>=4.13,<5", "playwright>=1.55,<2"]
+dependencies = [
+    "mcp>=1.26,<2",
+    "httpx>=0.28,<1",
+    "beautifulsoup4>=4.13,<5",
+    "playwright>=1.55,<2",
+    "pypdfium2>=4.30,<6",
+    "openpyxl>=3.1,<4",
+    "python-docx>=1.1,<2",
+    "reportlab>=4.4,<5",
+    "rapidocr-onnxruntime>=1.4,<2",
+    "pillow>=11,<13",
+    "paramiko>=3.5,<5",
+]
 
 [project.scripts]
 school-mcp = "school_mcp.__main__:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/school_mcp"]
+
+[dependency-groups]
+build = [
+    "pyinstaller>=6.16,<7",
+]

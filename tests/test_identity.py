@@ -19,7 +19,7 @@ def cookie(name, domain="id.ustc.edu.cn", expires=None):
 
 class IdentityScopeTests(unittest.TestCase):
     def test_status_omits_account_identifier(self):
-        with patch("school_mcp.bb.identity.load_credentials", return_value={"username": "synthetic-private-account"}), patch("school_mcp.bb.identity.load_device_state", side_effect=BBError("not configured")):
+        with patch("school_mcp.bb.identity.load_credentials", return_value={"username": "synthetic-private-account", "password": "synthetic-password"}), patch("school_mcp.bb.identity.load_device_state", side_effect=BBError("not configured")):
             result = status()
         self.assertTrue(result["credentials_saved"])
         self.assertNotIn("username", result)

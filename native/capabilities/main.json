@@ -1,0 +1,7 @@
+{
+  "identifier": "main",
+  "description": "Only the packaged main UI can use the scoped local backend and open HTTPS links.",
+  "windows": ["main"],
+  "local": true,
+  "permissions": ["allow-backend-request", "allow-open-external", "core:event:allow-listen", "core:event:allow-unlisten"]
+}

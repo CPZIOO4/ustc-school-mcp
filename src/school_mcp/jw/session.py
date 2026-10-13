@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from ..mail.config import MailError, local_dir
 from ..mail.credentials import _dpapi
+from .. import session_native as native
 
 BASE_URL = "https://jw.ustc.edu.cn"
 HOST = "jw.ustc.edu.cn"
@@ -18,6 +19,8 @@ class JWError(ServiceError):
 
 
 def jw_cookies(cookies: list[dict]) -> list[dict]:
+    if native.enabled():
+        return native.invoke('sessions_filter', 'jw', JWError, state={'cookies': cookies})['cookies']
     return [dict(cookie) for cookie in cookies if cookie.get("domain", "").lstrip(".").lower() in {HOST, "ustc.edu.cn"}]
 
 
@@ -26,6 +29,12 @@ def save_session(cookies: list[dict], user_agent: str) -> None:
     if not selected:
         raise JWError("没有取得教务系统会话，请先完成统一身份认证。")
     data = {"base_url": BASE_URL, "cookies": selected, "user_agent": user_agent, "saved_at": datetime.now(timezone.utc).isoformat()}
+    if native.enabled():
+        account = native.current_account()
+        if account is not None:
+            data['account'] = account
+        native.invoke('sessions_write', 'jw', JWError, path=local_dir() / 'jw.session.dpapi', value=data, account=account)
+        return
     try:
         directory = local_dir()
         directory.mkdir(parents=True, exist_ok=True)
@@ -37,6 +46,8 @@ def save_session(cookies: list[dict], user_agent: str) -> None:
 
 
 def load_session() -> dict:
+    if native.enabled():
+        return native.invoke('sessions_read', 'jw', JWError, path=local_dir() / 'jw.session.dpapi', account=native.current_account())
     try:
         data = json.loads(_dpapi((local_dir() / "jw.session.dpapi").read_bytes(), decrypt=True))
         if data["base_url"] != BASE_URL or not jw_cookies(data["cookies"]) or not isinstance(data["user_agent"], str):

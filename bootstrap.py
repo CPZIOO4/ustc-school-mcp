@@ -11,7 +11,8 @@ import sys
 
 ROOT = Path(__file__).resolve().parent
 SERVICES = ('mail', 'bb', 'jw', 'library', 'teach', 'nan7', 'icourse', 'young', 'finance')
-NAMES = {s: 'ustc-' + s for s in SERVICES} | {'nan7': 'nan7market', 'icourse': 'icourse'}
+OPTIONAL_SERVICES = ('agent', 'portal', 'student', 'spaces', 'drive', 'vlab', 'web', 'digest')
+NAMES = {s: 'ustc-' + s for s in SERVICES + OPTIONAL_SERVICES} | {'nan7': 'nan7market', 'icourse': 'icourse', 'agent': 'school-agent'}
 
 
 def python_path() -> Path:
@@ -29,7 +30,7 @@ def configuration(services: list[str], private_dir: Path) -> dict:
     executable = python_path()
     if not executable.is_file():
         raise ValueError('先运行 python bootstrap.py install。')
-    if any(service not in SERVICES for service in services):
+    if any(service not in SERVICES + OPTIONAL_SERVICES for service in services):
         raise ValueError('未知服务。')
     return {'mcpServers': {NAMES[s]: {
         'command': str(executable), 'args': ['-m', 'school_mcp', 'serve' if s == 'mail' else s + '-serve'],
@@ -43,7 +44,7 @@ def main() -> int:
         sys.stdout.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=('check', 'install', 'config', 'verify'))
-    parser.add_argument('--service', action='append', choices=SERVICES)
+    parser.add_argument('--service', action='append', choices=SERVICES + OPTIONAL_SERVICES)
     parser.add_argument('--private-dir', type=Path, default=ROOT / '.local')
     args = parser.parse_args()
     selected = list(dict.fromkeys(args.service or SERVICES))

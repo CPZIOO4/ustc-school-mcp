@@ -12,7 +12,7 @@ from ..browser import BackgroundVerificationRequired, background_progress, chrom
 
 from ..bb.email_verification import EmailVerification
 from ..bb.identity import IDENTITY_HOSTS, load_credentials, load_device_state, save_device_state
-from ..bb.login import CONTEXT_OPTIONS, remember_device, try_submit_credentials
+from ..bb.login import CONTEXT_OPTIONS, remember_device, try_submit_credentials, session_only_step
 from ..bb.session import BBError
 from ..mail.config import local_dir
 from .client import JWClient
@@ -67,6 +67,7 @@ def run(timeout_seconds=240):
                     remember_device(page)
                     if not submitted:
                         submitted = try_submit_credentials(page, credentials)
+                        session_only_step(page, credentials, verification, login_state)
                         if submitted:
                             login_state("credentials_submitted", "已自动提交统一身份凭据，正在等待教务登录结果。")
                     if submitted:

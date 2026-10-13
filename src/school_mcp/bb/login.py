@@ -91,7 +91,7 @@ def gateway_login_url(page_url: str, html: str) -> str | None:
 
 def try_submit_credentials(page, credentials: dict | None) -> bool:
     parsed = urlsplit(page.url)
-    if credentials is None or parsed.scheme != "https" or parsed.hostname not in IDENTITY_HOSTS or parsed.port not in (None, 443) or parsed.username or parsed.password:
+    if not credentials or not credentials.get('password') or parsed.scheme != "https" or parsed.hostname not in IDENTITY_HOSTS or parsed.port not in (None, 443) or parsed.username or parsed.password:
         return False
     account = page.locator('input[placeholder*="学工号"]:visible, input[placeholder*="GID"]:visible, input[name="username"]:visible, input#username:visible')
     password = page.locator('input[type="password"]:visible')
@@ -118,6 +118,22 @@ def remember_device(page) -> None:
     checkbox = page.get_by_role("checkbox", name=re.compile(r"信任.*设备|记住.*设备|Trust.*device|Remember.*device", re.I))
     if checkbox.count() == 1 and checkbox.is_visible() and not checkbox.is_checked():
         checkbox.check()
+
+
+def session_only_step(page, credentials, verification, notify):
+    """Cookie-only profiles may complete email MFA, but never fill an empty password."""
+    if not credentials or credentials.get('session_only') is not True:
+        return
+    parsed = urlsplit(page.url)
+    if parsed.scheme != 'https' or parsed.hostname not in IDENTITY_HOSTS:
+        return
+    verification.step(page)
+    body = page.locator('body').inner_text(timeout=3000)
+    verification.observe_result(body)
+    if not verification.last_stage and page.locator('input[type="password"]:visible').count():
+        notify('waiting_for_verification', '统一身份会话需要本人重新登录，请在应用中打开学校官方登录窗口。')
+    elif not verification.last_stage and re.search(r'验证码|动态口令|二次验证|Verification code', body, re.I):
+        notify('waiting_for_verification', '学校需要本人完成身份验证。')
 
 
 def run(timeout_seconds: int = 240, force_identity_login: bool = False) -> None:
@@ -178,6 +194,7 @@ def run(timeout_seconds: int = 240, force_identity_login: bool = False) -> None:
                 remember_device(page)
                 if not submitted:
                     submitted = try_submit_credentials(page, credentials)
+                    session_only_step(page, credentials, email_verification, login_state)
                     if submitted:
                         login_state("credentials_submitted", "已自动提交统一身份登录信息。已启用的邮箱验证会自动尝试。", device_state_restored=device is not None)
                 if hostname in IDENTITY_HOSTS:

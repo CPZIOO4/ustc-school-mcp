@@ -12,6 +12,7 @@ from school_mcp.mail.config import MailError, load_config, local_dir
 from school_mcp.mail.credentials import _dpapi
 
 from .session import BB_HOSTS, BBError
+from .. import session_native as native
 
 IDENTITY_HOSTS = {"id.ustc.edu.cn", "passport.ustc.edu.cn"}
 AUTH_HOSTS = BB_HOSTS | IDENTITY_HOSTS
@@ -19,6 +20,11 @@ COOKIE_DOMAINS = AUTH_HOSTS | {"ustc.edu.cn", ".ustc.edu.cn"}
 
 
 def _save(name: str, data: dict) -> None:
+    if native.enabled():
+        profile = {'ustc-identity.credentials.dpapi': 'identity', 'ustc-identity.device.dpapi': 'device',
+                   'finance-session.dpapi': 'finance', 'young-session.dpapi': 'young'}[name]
+        native.invoke('sessions_write', profile, BBError, path=local_dir() / name, value=data)
+        return
     try:
         protected = _dpapi(json.dumps(data, ensure_ascii=False).encode("utf-8"))
         directory = local_dir()
@@ -31,6 +37,10 @@ def _save(name: str, data: dict) -> None:
 
 
 def _load(name: str) -> dict:
+    if native.enabled():
+        profile = {'ustc-identity.credentials.dpapi': 'identity', 'ustc-identity.device.dpapi': 'device',
+                   'finance-session.dpapi': 'finance', 'young-session.dpapi': 'young'}[name]
+        return native.invoke('sessions_read', profile, BBError, path=local_dir() / name)
     try:
         return json.loads(_dpapi((local_dir() / name).read_bytes(), decrypt=True))
     except (MailError, OSError, ValueError, TypeError):
@@ -55,9 +65,34 @@ def _verification_address() -> str:
 
 def load_credentials() -> dict:
     data = _load("ustc-identity.credentials.dpapi")
-    if not isinstance(data, dict) or not isinstance(data.get("username"), str) or not isinstance(data.get("password"), str) or not data["password"]:
+    if (not isinstance(data, dict) or not isinstance(data.get("username"), str)
+            or not re.fullmatch(r"[A-Za-z0-9_.@-]{1,100}", data['username'])
+            or not isinstance(data.get("password"), str)
+            or not data['password'] and data.get('session_only') is not True):
         raise BBError("统一身份本地凭据格式无效。")
     return data
+
+
+def save_session_identity(username: str) -> None:
+    """Record the identity observed during an official manual login, without a password."""
+    if native.enabled():
+        native.invoke('sessions_identity_save', 'identity', BBError,
+                      path=local_dir() / 'ustc-identity.credentials.dpapi', username=username)
+        return
+    if not re.fullmatch(r'[A-Za-z0-9_.@-]{1,100}', username):
+        raise BBError('未能识别本次登录账号。')
+    previous = None
+    try:
+        previous = load_credentials()
+    except BBError:
+        pass
+    if previous and previous['username'] != username:
+        raise BBError('当前登录账号与本机账号不同；请先在应用中切换账号。')
+    value = {'username': username, 'password': '', 'session_only': True,
+             'saved_at': datetime.now(timezone.utc).isoformat(), 'email_verification_enabled': False}
+    if previous:
+        value.update({k: previous[k] for k in ('email_verification_enabled', 'email_verification_address') if k in previous})
+    _save('ustc-identity.credentials.dpapi', value)
 
 
 def set_email_verification(enabled: bool) -> None:
@@ -80,6 +115,8 @@ def setup_credentials(email_verification: bool = False) -> None:
 
 
 def scoped_state(state: dict) -> dict:
+    if native.enabled():
+        return native.invoke('sessions_filter', 'device', BBError, state=state)
     cookies = []
     for cookie in state.get("cookies", []):
         if cookie.get("domain", "").lower() not in COOKIE_DOMAINS and cookie.get("domain", "").lstrip(".").lower() not in AUTH_HOSTS:
@@ -97,6 +134,9 @@ def scoped_state(state: dict) -> dict:
 
 
 def load_device_state(account: str | None = None) -> dict:
+    if native.enabled():
+        return native.invoke('sessions_read', 'device', BBError,
+                             path=local_dir() / 'ustc-identity.device.dpapi', account=account)
     data = _load("ustc-identity.device.dpapi")
     if not isinstance(data, dict) or not isinstance(data.get("state"), dict):
         raise BBError("统一身份设备状态格式无效。")
@@ -107,6 +147,10 @@ def load_device_state(account: str | None = None) -> dict:
 
 
 def save_device_state(account: str | None, state: dict, channel: str, context_options: dict) -> dict:
+    if native.enabled():
+        return native.invoke('sessions_device_save', 'device', BBError,
+                             path=local_dir() / 'ustc-identity.device.dpapi', account=account,
+                             state=state, channel=channel, context_options=context_options)
     selected = scoped_state(state)
     # A BB-only refresh must not accidentally discard identity-provider trust cookies.
     try:
@@ -131,7 +175,8 @@ def status() -> dict:
     try:
         credentials = load_credentials()
         account = credentials["username"]
-        result.update(credentials_saved=True)
+        result.update(credentials_saved=bool(credentials['password']), identity_saved=True,
+                      session_only=credentials.get('session_only') is True)
         result["email_verification_enabled"] = credentials.get("email_verification_enabled") is True
     except BBError:
         pass

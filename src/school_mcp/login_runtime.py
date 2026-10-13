@@ -177,7 +177,7 @@ def _start_login(adapter: str, notify, error_type, force_identity_login: bool = 
     network.limiter.acquire("identity")
     notify("starting", "已请求后台登录，正在恢复已保存的认证状态。")
     executable = Path(sys.executable)
-    if os.name == "nt" and executable.with_name("pythonw.exe").exists():
+    if os.name == "nt" and not getattr(sys, 'frozen', False) and executable.with_name("pythonw.exe").exists():
         executable = executable.with_name("pythonw.exe")
     arguments = [str(executable), "-m", "school_mcp", f"{adapter}-login"]
     if force_identity_login:
@@ -185,9 +185,8 @@ def _start_login(adapter: str, notify, error_type, force_identity_login: bool = 
     # A prior manually headed command must not make an MCP reconnect pop up a window.
     environment = {**os.environ, "SCHOOL_MCP_LOCAL_DIR": str(directory), "PYTHONUTF8": "1", "SCHOOL_MCP_BROWSER_HEADED": "0"}
     try:
-        with (directory / f"{adapter}-login.log").open("ab") as output, (directory / f"{adapter}-login.error.log").open("ab") as errors:
-            process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=output, stderr=errors,
-                env=environment, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+        process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            env=environment, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
     except OSError:
         notify("error", "后台登录程序启动失败，请检查 Python 环境和本地目录权限。")
         raise error_type("后台登录程序启动失败；已有会话保留，请检查本地环境后重新连接。") from None

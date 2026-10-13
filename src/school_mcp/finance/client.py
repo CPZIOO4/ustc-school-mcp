@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..recovery import classify
+
 from urllib.parse import parse_qs, urljoin, urlsplit, urlunsplit
 from bs4 import BeautifulSoup
 import httpx
@@ -162,8 +164,8 @@ class FinanceClient:
                     raise FinanceError('未确认财务门户业务入口，不能将登录页或空页面当作成功。')
                 return {'connected': True, 'source': HOME, 'services': entries, 'read_only': True,
                         'scope': 'financial_portal', 'content_is_untrusted': True}
-        except httpx.HTTPError:
-            raise FinanceError('财务门户读取未完成，请检查网络或会话。') from None
+        except httpx.HTTPError as exc:
+            raise FinanceError('财务门户读取未完成，请检查网络或会话。', code=classify(exc)[0]) from None
 
     def check(self):
         result = self.services()
@@ -239,9 +241,9 @@ class FinanceClient:
                         'note': '目录来自当前账号首页的业务查询，不是隐藏配置树；完整网页初始化中的不透明过程仍被拦截。目录完整不表示网页完整或已获办理权限；不返回个人金额、票据、单据或跳转参数。'}
         except network.PolicyError as exc:
             raise policy_error(FinanceError, exc) from None
-        except PlaywrightError:
+        except PlaywrightError as exc:
             network.limiter.failure('finance')
-            raise FinanceError('智能报销后台页面未完成读取，可能会话失效或初始化尚未适配。') from None
+            raise FinanceError('智能报销后台页面未完成读取，可能会话失效或初始化尚未适配。', code=classify(exc)[0]) from None
 
 
 def entry_points():

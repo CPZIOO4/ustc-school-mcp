@@ -7,6 +7,7 @@ from ..bb.identity import load_credentials
 from ..bb.session import BBError
 from ..mail.config import MailError, local_dir
 from ..mail.credentials import _dpapi
+from .. import session_native as native
 
 SITE_URL = "https://nan7market.com"
 API_URL = "https://nan7market-api.0x01.work/api"
@@ -28,6 +29,9 @@ def save_session(token: str, account: str | None) -> None:
     if not valid_token(token):
         raise Nan7Error("没有取得有效的南七集市会话。")
     data = {"token": token, "account": account, "saved_at": datetime.now(timezone.utc).isoformat()}
+    if native.enabled():
+        native.invoke('sessions_write', 'nan7', Nan7Error, path=local_dir() / 'nan7-session.dpapi', value=data, account=account)
+        return
     try:
         directory = local_dir()
         directory.mkdir(parents=True, exist_ok=True)
@@ -39,6 +43,8 @@ def save_session(token: str, account: str | None) -> None:
 
 
 def load_session() -> dict:
+    if native.enabled():
+        return native.invoke('sessions_read', 'nan7', Nan7Error, path=local_dir() / 'nan7-session.dpapi', account=native.current_account())
     try:
         data = json.loads(_dpapi((local_dir() / "nan7-session.dpapi").read_bytes(), decrypt=True))
         if not isinstance(data, dict) or not valid_token(data.get("token")) or not isinstance(data.get("saved_at"), str):

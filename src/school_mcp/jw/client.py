@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..recovery import classify
+
 import re
 from urllib.parse import parse_qsl, urljoin, urlsplit
 
@@ -78,8 +80,8 @@ class JWClient:
                 raise JWError("教务系统跳转次数超过限制。")
         except JWError:
             raise
-        except (httpx.HTTPError, ValueError):
-            raise JWError("无法读取教务系统，请检查网络与登录状态。") from None
+        except (httpx.HTTPError, ValueError) as exc:
+            raise JWError("无法读取教务系统，请检查网络与登录状态。", code=classify(exc)[0]) from None
 
     def home(self, max_chars=6000) -> dict:
         if not 1 <= max_chars <= 100000:

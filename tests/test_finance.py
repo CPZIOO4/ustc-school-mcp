@@ -52,7 +52,7 @@ class FinanceTests(unittest.TestCase):
         self.assertTrue(request_allowed(url, 'POST', login=True))
 
     def test_own_state_excludes_identity_and_other_accounts_sites(self):
-        result = own_state({'cookies': [{'domain': 'cwzh.ustc.edu.cn'}, {'domain': '.ustc.edu.cn'}, {'domain': 'evil.example'}],
+        result = own_state({'cookies': [{'name': 'session', 'value': 'synthetic', 'domain': 'cwzh.ustc.edu.cn'}, {'domain': '.ustc.edu.cn'}, {'domain': 'evil.example'}],
                             'origins': [{'origin': 'https://cwzh.ustc.edu.cn'}, {'origin': 'https://id.ustc.edu.cn'}]})
         self.assertEqual(len(result['cookies']), 1)
         self.assertEqual(len(result['origins']), 1)

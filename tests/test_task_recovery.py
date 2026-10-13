@@ -171,6 +171,60 @@ class TaskRecoveryTests(unittest.TestCase):
         with self.assertRaises(ValueError):api.query('young',task_kind='script')
         self.assertEqual(api.pagination(10000,10,True), {'next_offset':None,'scan_limit_reached':True})
 
+    def test_labels_filters_and_scan_pagination(self):
+        store=PlanStore('icourse','synthetic-owner',self.root)
+        wanted=store.create('first',{}, {}, {}, {'course_title':'ＳＹＮＴＨＥＴＩＣ 课程'})['plan_id']
+        store.create('second',{}, {}, {}, {'course_title':'另一课程'})
+        first=api.query('icourse',keyword='synthetic',limit=1)
+        self.assertEqual(first['items'],[])
+        self.assertEqual(first['next_offset'],1)
+        second=api.query('icourse',keyword='synthetic',limit=1,offset=1,states=['ready'])
+        self.assertEqual(second['items'][0]['task_id'],wanted)
+        self.assertTrue(second['items'][0]['created_at_known'])
+        self.assertEqual(api.query('icourse',states=['verified'])['items'],[])
+
+    def test_old_record_date_is_unknown_and_not_inferred_from_expiry(self):
+        store, identifier=self.plan()
+        with store.db() as db:
+            raw=db.execute('SELECT payload FROM plans WHERE id=?',(identifier,)).fetchone()[0]
+            payload=api.decode(raw); payload.pop('created_at')
+            db.execute('UPDATE plans SET payload=? WHERE id=?',(_dpapi(json.dumps(payload).encode()),identifier))
+        item=self.detail('icourse',identifier)
+        self.assertIsNone(item['created_at']); self.assertFalse(item['created_at_known'])
+        self.assertEqual(api.query('icourse',created_after='2000-01-01T00:00:00+00:00')['items'],[])
+
+    def test_dates_use_inclusive_start_exclusive_end_and_timezone(self):
+        _, identifier=self.plan()
+        created=self.detail('icourse',identifier)['created_at']
+        self.assertEqual(len(api.query('icourse',created_after=created)['items']),1)
+        self.assertEqual(api.query('icourse',created_before=created)['items'],[])
+        for kwargs in [{'created_after':'2026-10-11'}, {'created_after':created,'created_before':created},
+                       {'task_id':identifier,'keyword':'x'}, {'include_summary':False,'keyword':'x'},
+                       {'states':['invented']}, {'include_summary':'false'}]:
+            with self.assertRaises((ValueError,TypeError)):api.query('icourse',**kwargs)
+
+    def test_summary_can_be_omitted_without_decrypting_primary_payload(self):
+        self.plan()
+        with patch.object(api,'decode',side_effect=AssertionError('must not decrypt')):
+            page=api.query('icourse',include_summary=False)
+        self.assertEqual(page['state'],'completed')
+        self.assertNotIn('label',page['items'][0])
+
+    def test_young_keywords_and_script_labels_are_bounded(self):
+        self.assertEqual(api.metadata('young',{'name_keywords':['合成','活动']})['label'],'合成 / 活动')
+        label=api.metadata('bb',{'label':'x'*300,'created_at':'bad'},'script')
+        self.assertEqual(len(label['label']),160)
+        self.assertIsNone(label['created_at'])
+        self.assertEqual(api.clean_label('合成\u202e课程\n标题'),'合成课程标题')
+
+    def test_display_label_does_not_change_script_deduplication(self):
+        store=JobStore(self.root); now=datetime.now(timezone.utc)
+        args=('bb','bb_submit',{},now.isoformat(),(now+timedelta(hours=1)).isoformat(),60,'synthetic-owner')
+        first=store.create(*args,task_label='原名称')
+        again=store.create(*args,task_label='改名')
+        self.assertEqual(first,again)
+        self.assertEqual(api.query('bb',task_kind='script')['items'][0]['label'],'原名称')
+
     def test_next_tool_arguments_match_actual_servers(self):
         from school_mcp.bb.server import mcp as bb
         from school_mcp.young.server import mcp as young

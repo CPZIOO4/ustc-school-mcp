@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..recovery import classify
+
 import re
 from urllib.parse import parse_qs, urljoin, urlsplit
 
@@ -85,10 +87,10 @@ class BBClient:
                 raise BBError("BB 页面跳转次数超过限制。")
         except BBError:
             raise
-        except httpx.TimeoutException:
-            raise BBError("连接 BB 平台超时，请稍后重试。") from None
-        except httpx.HTTPError:
-            raise BBError("无法读取 BB 页面，请检查网络和访问权限。") from None
+        except httpx.TimeoutException as exc:
+            raise BBError("连接 BB 平台超时，请稍后重试。", code=classify(exc)[0]) from None
+        except httpx.HTTPError as exc:
+            raise BBError("无法读取 BB 页面，请检查网络和访问权限。", code=classify(exc)[0]) from None
 
     def check(self) -> dict:
         response = self.get(PORTAL_PATH)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ..recovery import classify
+
 import json
 import re
 from typing import Any
@@ -65,8 +67,8 @@ class Nan7Client:
             if not isinstance(data, dict):
                 raise ValueError("not object")
             return data
-        except httpx.HTTPError:
-            raise Nan7Error("无法连接南七集市接口，请稍后重试。") from None
+        except httpx.HTTPError as exc:
+            raise Nan7Error("无法连接南七集市接口，请稍后重试。", code=classify(exc)[0]) from None
         except (ValueError, TypeError):
             raise Nan7Error("南七集市接口返回格式异常，无法可靠读取。") from None
 

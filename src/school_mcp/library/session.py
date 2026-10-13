@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from ..mail.config import MailError, local_dir
 from ..mail.credentials import _dpapi
+from .. import session_native as native
 
 PUBLIC_URL = "https://lib.ustc.edu.cn"
 HOST = "opac.lib.ustc.edu.cn"
@@ -19,6 +20,8 @@ class LibraryError(ServiceError):
 
 
 def library_cookies(cookies: list[dict]) -> list[dict]:
+    if native.enabled():
+        return native.invoke('sessions_filter', 'library', LibraryError, state={'cookies': cookies})['cookies']
     return [dict(c) for c in cookies if c.get("domain", "").lstrip(".").lower() in {HOST, "lib.ustc.edu.cn"}]
 
 
@@ -27,6 +30,9 @@ def save_session(cookies: list[dict], base_url: str, user_agent: str, account: s
     if base_url not in BASE_URLS or not selected:
         raise LibraryError("没有取得有效的个人图书馆会话。")
     data = {"cookies": selected, "base_url": base_url, "user_agent": user_agent, "account": account, "saved_at": datetime.now(timezone.utc).isoformat()}
+    if native.enabled():
+        native.invoke('sessions_write', 'library', LibraryError, path=local_dir() / 'library.session.dpapi', value=data, account=account)
+        return
     try:
         directory = local_dir()
         directory.mkdir(parents=True, exist_ok=True)
@@ -38,6 +44,8 @@ def save_session(cookies: list[dict], base_url: str, user_agent: str, account: s
 
 
 def load_session() -> dict:
+    if native.enabled():
+        return native.invoke('sessions_read', 'library', LibraryError, path=local_dir() / 'library.session.dpapi', account=native.current_account())
     try:
         data = json.loads(_dpapi((local_dir() / "library.session.dpapi").read_bytes(), decrypt=True))
         if not isinstance(data, dict) or data["base_url"] not in BASE_URLS or not isinstance(data["cookies"], list) or not isinstance(data["user_agent"], str):

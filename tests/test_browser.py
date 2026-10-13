@@ -25,7 +25,7 @@ class BackgroundBrowserTests(unittest.TestCase):
 
     def test_visible_window_requires_explicit_override(self):
         p = Mock()
-        with patch.dict(os.environ, {'SCHOOL_MCP_BROWSER_HEADED': '1'}):
+        with patch.dict(os.environ, {'SCHOOL_MCP_BROWSER_HEADED': '1'}), patch('school_mcp.desktop.native_core.enabled', return_value=False):
             with chrome_browser(p):
                 pass
         p.chromium.launch.assert_called_once_with(channel='chrome', headless=False)

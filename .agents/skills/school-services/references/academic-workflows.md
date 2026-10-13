@@ -5,7 +5,7 @@
 ## 课表、成绩与 GPA（已有 MCP）
 
 1. 用 `school_jw_list_semesters` 确认学期名称和 ID；“大三”先对应入学年和学年，不直接取当前学期。
-2. 课表用 `school_jw_timetable`；已选课程用 `school_jw_list_courses`；成绩用 `school_jw_grades`。成绩的 `semester_id=0` 是全学期，不是当前学期。
+2. 问某门课或实验时间时，优先 `school_jw_course_schedule`，按真实课堂匹配教务课表和同班 BB 公告；同名歧义先让用户选择。普通课表用 `school_jw_timetable`；已选课程用 `school_jw_list_courses`；成绩用 `school_jw_grades`。成绩的 `semester_id=0` 是全学期，不是当前学期。
 3. 回答成绩时保留学校提供的统计口径；关键词只筛选课程行，不改变返回汇总。学年跨两学期时，不能直接平均两个学期 GPA。只有学分、绩点、纳入规则齐备时才另算，并标注为估算。
 4. “去掉某课后 GPA”只做情景计算，核对重修、放弃成绩与计入规则，不真的退课，也不把“放弃成绩”和“放弃修读”当同一操作。缺少权重或课程绩点时报告缺口。
 

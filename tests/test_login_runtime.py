@@ -110,7 +110,7 @@ class LoginRuntimeTests(unittest.TestCase):
 
     def test_forced_background_read_ignores_visible_login_setting(self):
         browser = Mock()
-        with patch.dict(os.environ, {"SCHOOL_MCP_BROWSER_HEADED": "1"}):
+        with patch.dict(os.environ, {"SCHOOL_MCP_BROWSER_HEADED": "1"}), patch('school_mcp.desktop.native_core.enabled', return_value=False):
             with chrome_browser(browser, headless=True):
                 pass
         browser.chromium.launch.assert_called_once_with(channel="chrome", headless=True)

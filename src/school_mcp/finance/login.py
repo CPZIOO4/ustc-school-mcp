@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 from playwright.sync_api import Error as PlaywrightError, sync_playwright
 from ..bb.email_verification import EmailVerification
 from ..bb.identity import IDENTITY_HOSTS, load_credentials, load_device_state, save_device_state
-from ..bb.login import CONTEXT_OPTIONS, remember_device, try_submit_credentials
+from ..bb.login import CONTEXT_OPTIONS, remember_device, try_submit_credentials, session_only_step
 from ..bb.session import BBError
 from ..browser import BackgroundVerificationRequired, background_progress, chrome_browser, stop_if_manual_verification
 from ..mail.config import local_dir
@@ -64,6 +64,7 @@ def run(timeout_seconds=240):
                     remember_device(page)
                     if not submitted:
                         submitted = try_submit_credentials(page, credentials)
+                        session_only_step(page, credentials, verification, login_state)
                     if submitted:
                         verification.step(page)
                         text = page.locator('body').inner_text(timeout=3000)

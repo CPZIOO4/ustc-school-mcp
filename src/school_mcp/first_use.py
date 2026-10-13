@@ -7,13 +7,14 @@ from pathlib import Path
 import sys
 import tempfile
 
-from .diagnostics import SERVICES, diagnose
+from .diagnostics import SERVICES, CAMPUS_SERVICES, diagnose
 from .mail.config import local_dir
 from .mail.onboarding import local_status
 from .runtime_version import MONITOR
 
 SESSIONS = {s: f'{s}.session.dpapi' for s in ('bb', 'jw', 'library')} | {
-    s: f'{s}-session.dpapi' for s in ('nan7', 'icourse', 'young', 'finance')}
+    s: f'{s}-session.dpapi' for s in ('nan7', 'icourse', 'young', 'finance')} | {
+    s: f'{s}-campus-session.dpapi' for s in CAMPUS_SERVICES}
 
 
 def command(*args: str) -> list[str]:
@@ -26,7 +27,14 @@ def local_report(services: list[str]) -> dict:
     checks = []
     for service in services:
         item = {'service': service, 'network_checked': False, 'connection_state': 'unchecked'}
-        if service in ('teach', 'icourse'):
+        if service == 'agent':
+            item.update(state='coordinator_ready', next_tool='school_agent_route',
+                        action='加载 school-agent Skill；协调层不证明任何学校账号可用。')
+        elif service == 'digest':
+            item.update(state='public_read_ready', next_tool='school_digest_sources', action='选择来源并预览；推送默认关闭。')
+        elif service == 'web':
+            item.update(state='public_read_ready', next_tool='school_web_read', action='提供支持范围内的公开网页 HTTPS 地址。')
+        elif service in ('teach', 'icourse'):
             item.update(state='public_read_ready', next_tool=f'school_{service}_check_connection')
         elif service == 'mail':
             status = local_status()
@@ -36,6 +44,9 @@ def local_report(services: list[str]) -> dict:
                             action='在单独打开的学校邮箱窗口中登录并完成校方验证。')
         elif (directory / SESSIONS[service]).is_file():
             item.update(state='session_unchecked', next_tool=f'school_{service}_check_connection')
+        elif identity and service in CAMPUS_SERVICES:
+            item.update(state='session_unchecked', next_tool=f'school_{service}_check_connection',
+                        action='检查时复用本人的学校会话；需验证时在应用账号页登录。')
         elif identity:
             item.update(state='login_required', next_tool=f'school_{service}_reconnect',
                         action='用户已授权登录该站点时调用；完成后检查连接。')
@@ -68,10 +79,17 @@ async def protocol_check(services: list[str], expected_fingerprint: str) -> list
                             tools = await session.list_tools()
                             names = {t.name for t in tools.tools}
                             runtime_tool = f'school_{service}_runtime_status'
-                            expected = {f'school_{service}_status', f'school_{service}_check_connection', runtime_tool}
+                            expected = ({runtime_tool, 'school_digest_sources', 'school_digest_configure', 'school_digest_export_calendar'} if service == 'digest' else
+                                        {runtime_tool, 'school_web_read', 'school_web_download'} if service == 'web' else
+                                        {runtime_tool, f'school_{service}_check_connection'} if service in CAMPUS_SERVICES else
+                                        {'school_agent_route', 'school_agent_start', 'school_agent_tools',
+                                         'school_agent_call', 'school_agent_task', 'school_agent_tasks', runtime_tool}
+                                        if service == 'agent' else
+                                        {f'school_{service}_status', f'school_{service}_check_connection', runtime_tool})
                             if not expected <= names:
                                 raise RuntimeError('Missing required tool')
-                            status = await session.call_tool(f'school_{service}_status', {})
+                            status = await session.call_tool(runtime_tool if service in (*CAMPUS_SERVICES, 'web', 'digest') else
+                                'school_agent_route' if service == 'agent' else f'school_{service}_status', {})
                             if status.isError:
                                 raise RuntimeError('Status tool failed')
                             runtime = await session.call_tool(runtime_tool, {'expected_fingerprint': expected_fingerprint})
@@ -115,13 +133,14 @@ def runtime_check(services: list[str]) -> dict:
 def first_use(services: list[str] | None = None, *, verify_runtime: bool = False,
               check_connections: bool = False) -> dict:
     selected = list(dict.fromkeys(services or ('mail', 'teach')))
-    if any(s not in SERVICES for s in selected):
+    if any(s not in (*SERVICES, 'agent', 'web', 'digest') for s in selected):
         raise ValueError('Unsupported service')
     report = local_report(selected)
     if verify_runtime:
         report['runtime'] = runtime_check(selected)
-    if check_connections:
-        report['connections'] = diagnose(selected)
+    network_services = [s for s in selected if s not in {'agent','web','digest'}]
+    if check_connections and network_services:
+        report['connections'] = diagnose(network_services)
         report['network_checked'] = True
     report['next_step'] = '按 checks 的 state/next_tool/next_command 处理；只检查用户要使用的服务。'
     return report

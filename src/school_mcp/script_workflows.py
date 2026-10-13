@@ -8,6 +8,7 @@ from typing import Literal, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 from .workflow_store import require
+from .input_guidance import attach, field
 from . import script_jobs as jobs
 
 
@@ -146,7 +147,7 @@ def schedule_bb(request: BBSubmit, schedule: Schedule, authorized=False):
     plan = Store().get(request.preparation_id)['plan']
     require(jobs.timestamp(schedule.end_at) < jobs.timestamp(plan['prepared_at']) + timedelta(hours=24), '作业准备有效期24小时，任务结束时间须在有效期内。')
     require(plan['allow_late'] or jobs.timestamp(schedule.end_at) <= jobs.timestamp(plan['baseline']['due_at']), '任务结束时间超出作业截止；不能隐式允许迟交。')
-    return create('bb', 'bb_submit', request.model_dump(), schedule)
+    return create('bb', 'bb_submit', request.model_dump(), schedule, task_label=status['assignment']['title'])
 
 
 def schedule_jw(request: JWWatch, schedule: Schedule):
@@ -156,9 +157,9 @@ def schedule_jw(request: JWWatch, schedule: Schedule):
     return create('jw', 'jw_watch', request.model_dump(), schedule)
 
 
-def create(service, kind, parameters, schedule):
+def create(service, kind, parameters, schedule, *, task_label=None):
     identifier = jobs.JobStore().create(service, kind, parameters, schedule.start_at, schedule.end_at,
-                                       schedule.poll_seconds, jobs.account(service))
+                                       schedule.poll_seconds, jobs.account(service), task_label=task_label)
     jobs.launch(identifier)
     return jobs.view(identifier, service)
 
@@ -178,6 +179,19 @@ def find_offering(client, semester_id, keyword, lesson_id):
 
 
 def plan_timetable(semester_id, keywords, constraints, client=None):
+    result = _plan_timetable(semester_id, keywords, constraints, client)
+    if result.get('state') != 'needs_input':
+        return result
+    action = result.get('next_action')
+    fields = ([field('/keywords','请缩小课程搜索范围','1–5个非空课程关键词，每个最多100字')]
+              if action == 'narrow_keywords' else
+              [field('/semester_id','请核实当前学期的官方学分、时间安排或必修课冲突',
+                     '保持原学期ID；先核实官方候选数据，不猜学分或忽略已选课', source='official_data')])
+    return attach(result, 'school_jw_build_timetable', fields,
+                  ['semester_id','keywords','constraints'], {'semester_id':semester_id})
+
+
+def _plan_timetable(semester_id, keywords, constraints, client=None):
     from .jw.academic import AcademicClient
     from .jw.planner import Candidate, generate
     require(type(semester_id) is int and semester_id > 0 and 1 <= len(keywords) <= 5
@@ -218,13 +232,26 @@ def prepare_bb_by_name(course_keyword, assignment_keyword, files=None, term='', 
     require(bool(course_keyword.strip()) and bool(assignment_keyword.strip()) and len(assignment_keyword) <= 200, '提供课程和作业关键词。')
     courses = BBClient().courses(course_keyword, term)['courses']
     if len(courses) != 1:
-        return dict(state='needs_input', next_action='specify_unique_course', courses=courses, content_is_untrusted=True)
+        result = dict(state='needs_input', next_action='specify_unique_course', courses=courses, content_is_untrusted=True)
+        if courses:
+            return attach(result, 'school_bb_list_assignments',
+                          [field('/course_id','请选择目标教学班','从返回courses中选course_id，不手写猜测',source='tool_result')])
+        return attach(result, 'school_bb_prepare_named_submission',
+                      [field('/course_keyword','未找到课程，请核对课程关键词及学期','非空课程关键词；term为课程列表使用的学期过滤文本')],
+                      ['course_keyword','assignment_keyword','files','term','comment','resubmit','reuse_previous_files','allow_late'])
     course_id = courses[0]['course_id']
     listing = catalog(course_id, max_pages=15, limit=50)
     candidates = [a for a in listing['assignments'] if assignment_keyword.casefold() in a['title'].casefold()]
     if listing.get('truncated') or len(candidates) != 1:
-        return dict(state='needs_input', next_action='specify_assignment_id', truncated=listing.get('truncated', False),
-                    assignments=[{k: a[k] for k in ('course_id', 'content_id', 'title')} for a in candidates], content_is_untrusted=True)
+        result = dict(state='needs_input', next_action='specify_assignment_id', truncated=listing.get('truncated', False),
+                      assignments=[{k: a[k] for k in ('course_id', 'content_id', 'title')} for a in candidates], content_is_untrusted=True)
+        if candidates and not listing.get('truncated'):
+            return attach(result, 'school_bb_prepare_submission',
+                          [field('/content_id','请选择要提交的作业','从返回assignments中选content_id',source='tool_result')],
+                          ['files','comment','resubmit','reuse_previous_files','allow_late'], {'course_id':course_id})
+        return attach(result, 'school_bb_prepare_named_submission',
+                      [field('/assignment_keyword','作业没有唯一完整匹配，请核对或缩小关键词','非空作业关键词，最多200字')],
+                      ['course_keyword','assignment_keyword','files','term','comment','resubmit','reuse_previous_files','allow_late'])
     return prepare_submission(course_id, candidates[0]['content_id'], files, comment,
                               reuse_previous_files=reuse_previous_files, resubmit=resubmit, allow_late=allow_late)
 
