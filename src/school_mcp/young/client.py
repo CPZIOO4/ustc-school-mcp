@@ -26,6 +26,8 @@ class YoungClient:
     def home(self, max_chars: int = 4000) -> dict:
         if isinstance(max_chars,bool) or not isinstance(max_chars,int) or not 1 <= max_chars <= 50000:
             raise YoungError("max_chars 必须为 1–50000 的整数。")
+        if native.enabled():
+            return native.io('home', max_chars=max_chars)
         session = load_session()
         options = dict(CONTEXT_OPTIONS)
         if session.get("user_agent"):

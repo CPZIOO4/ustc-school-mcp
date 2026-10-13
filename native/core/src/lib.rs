@@ -1,9 +1,12 @@
-//! Native business core. No UI, school credentials, or Python runtime dependency.
+//! Native business core. No UI or Python runtime dependency; secrets stay on private pipes.
 pub mod agent;
+pub mod app_io;
 pub mod auth_http;
 pub mod bb;
+pub mod bb_io;
 pub mod browser;
 pub mod catalog;
+pub mod cdp;
 pub mod context;
 pub mod finance;
 pub mod jw;
@@ -16,6 +19,7 @@ pub mod sessions;
 pub mod storage;
 pub mod strict_json;
 pub mod young;
+pub mod young_io;
 
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -71,7 +75,10 @@ impl Core {
                     "network_policy", "public_read", "public_parse", "authenticated_read", "jw", "bb_adapter",
                     "young_parse", "young_policy", "young_job", "sessions_filter", "sessions_merge",
                     "sessions_read", "sessions_write", "sessions_device_save", "sessions_identity_save", "sessions_validate",
-                    "browser_start", "browser_stop", "browser_status"]})),
+                    "browser_start", "browser_stop", "browser_status", "app_io", "bb_io", "young_io", "native_page_driver"]})),
+            "app_io" => app_io::dispatch(input, &self.model).await,
+            "bb_io" => bb_io::dispatch(input).await,
+            "young_io" => young_io::dispatch(input).await,
             "model_validate" => Ok(serde_json::to_value(model::Settings::parse(input)?)
                 .map_err(|_| Error::invalid())?),
             "message_validate" => model::validated_message(input.clone()),

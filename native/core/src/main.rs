@@ -1,11 +1,17 @@
 //! Length-prefixed private pipes only. No listening TCP port or plaintext logs.
+#![cfg_attr(windows, windows_subsystem = "windows")]
 use school_core::{Core, Error};
 use serde_json::json;
 use std::io::{self, Read, Write};
 
 fn main() {
     // Explicit invocation only; no secrets or user data in process arguments.
-    if std::env::args().skip(1).collect::<Vec<_>>() != ["--stdio"] {
+    let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    let scheduled = arguments.len() == 5
+        && arguments[0] == "--young-worker"
+        && arguments[1] == "--schedule-id"
+        && arguments[3] == "--private-dir";
+    if arguments != ["--stdio"] && !scheduled {
         std::process::exit(2);
     }
     let runtime = match tokio::runtime::Builder::new_current_thread()
@@ -15,6 +21,13 @@ fn main() {
         Ok(v) => v,
         Err(_) => std::process::exit(1),
     };
+    if scheduled {
+        let result = runtime.block_on(school_core::young_io::run_schedule(
+            std::path::Path::new(&arguments[4]),
+            &arguments[2],
+        ));
+        std::process::exit(if result.is_ok() { 0 } else { 1 });
+    }
     let core = match Core::new() {
         Ok(v) => v,
         Err(_) => std::process::exit(1),

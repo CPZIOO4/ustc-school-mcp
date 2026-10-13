@@ -49,6 +49,12 @@ def read_private(path, default=None):
 class Data:
     def __init__(self, root=None):
         self.root = Path(root or Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'USTCSchoolAgent').resolve()
+        if native_core.enabled():
+            from .app_native import call
+            value = call(self, 'initialize')
+            self.root, self.profile = Path(value['root']), Path(value['profile'])
+            self._configure()
+            return
         self.root.mkdir(parents=True, exist_ok=True)
         marker = self.root / 'school-desktop.json'
         if not marker.exists():
@@ -59,6 +65,9 @@ class Data:
             raise ValueError('不是学校应用数据目录。')
         self.profile = self.root / 'profile'
         self.profile.mkdir(exist_ok=True)
+        self._configure()
+
+    def _configure(self):
         from ..safety_log import configure_desktop
         configure_desktop(self.root)
         os.environ['SCHOOL_MCP_LOCAL_DIR'] = str(self.profile)
@@ -124,6 +133,14 @@ class Data:
 
     def recover(self):
         # Crashed turns are never restarted automatically, including an API request.
+        if native_core.enabled():
+            from .app_native import call
+            with self.lock:
+                if call(self, 'recovery_pending')['recovered']:
+                    from ..safety_log import record
+                    incident = record(code='interrupted', stage='recovery', outcome='interrupted')
+                    call(self, 'recover', incident=incident)
+            return
         with self.db() as db:
             rows = db.execute('SELECT payload FROM chats').fetchall()
         for row in rows:

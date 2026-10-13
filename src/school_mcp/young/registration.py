@@ -498,6 +498,8 @@ def status_job(job_id, verify=False):
     s=load_session();store=Jobs(s['account']);job=store.view(job_id)
     if not verify or job['state'] not in {'submitting','uncertain'}:
         return job
+    if native.enabled():
+        return native.io('verify', job_id=job_id)
     result=job.get('result') or {}
     item_id=result.get('item_id') or result.get('item',{}).get('id')
     require(item_id,'没有可独立核验的活动标识；不可重新提交。')
@@ -526,6 +528,8 @@ def cancel_job(job_id):
 
 def find_projects(keyword):
     require(isinstance(keyword,str) and 1<=len(keyword)<=200,'需要 1–200 字的查询词。')
+    if native.enabled():
+        return native.io('find', keyword=keyword)
     try:
         with RegistrationBrowser(load_session()).open() as browser:
             return dict(projects=browser.listing(keyword),scope='当前报名中项目',content_is_untrusted=True)
@@ -537,6 +541,8 @@ def find_projects(keyword):
 
 def list_projects(page=1):
     require(type(page) is int and 1 <= page <= 30, '页码须为 1–30。')
+    if native.enabled():
+        return native.io('list', page=page)
     try:
         with RegistrationBrowser(load_session()).open() as browser:
             return browser.listing_page(page)
@@ -568,6 +574,8 @@ def project_view(detail):
 def read_project(item_id, page=1, child_id=None):
     require(isinstance(item_id, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,100}', item_id), '项目编号须来自列表。')
     require(child_id is None or isinstance(child_id, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,100}', child_id), '场次编号须来自系列列表。')
+    if native.enabled():
+        return native.io('detail', item_id=item_id, page=page, child_id=child_id)
     try:
         with RegistrationBrowser(load_session()).open() as browser:
             listed = browser.listing_page(page)
@@ -589,6 +597,8 @@ def read_project(item_id, page=1, child_id=None):
 
 
 def run_job(job_id):
+    if native.enabled():
+        return native.io('run', job_id=job_id)
     s=load_session();store=Jobs(s['account'])
     if not store.claim(job_id):return store.view(job_id)
     job=store.view(job_id)

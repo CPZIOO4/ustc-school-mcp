@@ -40,7 +40,7 @@ class Worker:
 
 
 # Slow provider requests must not block local storage, status, or task recovery.
-_workers = {name: Worker() for name in ('network', 'public', 'authenticated', 'browser', 'local')}
+_workers = {name: Worker() for name in ('network', 'public', 'authenticated', 'browser', 'bb_io', 'young_io', 'local')}
 
 
 def enabled():
@@ -71,7 +71,8 @@ def call(operation, value):
     raw = json.dumps({'operation': operation, 'input': value}, ensure_ascii=False, allow_nan=False).encode('utf-8')
     if len(raw) > MAX_FRAME:
         raise ModelError('context_capacity', '本轮本机请求过大；原记录保留，请缩小任务范围。')
-    channel = ('network' if operation in {'model_complete', 'model_list'} else
+    channel = ('network' if operation in {'model_complete', 'model_list'} or (operation == 'app_io' and value.get('action') in {'list_models', 'test_connection'}) else
+               operation if operation in {'bb_io', 'young_io'} else
                'public' if operation == 'public_read' else
                'authenticated' if operation == 'authenticated_read' else
                'browser' if operation.startswith('browser_') else 'local')
@@ -103,7 +104,7 @@ def call(operation, value):
 
             reader = threading.Thread(target=exchange, daemon=True)
             reader.start()
-            result = replies.get(timeout=135)
+            result = replies.get(timeout=600 if operation == 'bb_io' else 135)
             if not isinstance(result, dict) or type(result.get('ok')) is not bool:
                 raise ValueError()
             if result['ok']:

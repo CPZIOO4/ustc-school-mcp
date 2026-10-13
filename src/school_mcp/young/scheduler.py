@@ -1,4 +1,4 @@
-"""Windows-native Python worker scheduling. Task parameters contain no credentials."""
+"""Native scheduling bridge, with the legacy Python worker for non-native clients."""
 from __future__ import annotations
 
 import base64
@@ -68,6 +68,8 @@ def task_xml(identifier,monitor_from, *, executable=None,private_dir=None):
 
 
 def inspect_schedule(identifier):
+    if native.enabled():
+        return native.io('inspect_schedule', schedule_id=valid_id(identifier))
     spec=read_spec(identifier)
     if spec.get('scheduler')=='background-python':
         from ..login_runtime import process_started_at, running
@@ -85,6 +87,9 @@ $t=Get-ScheduledTask -TaskName '{name}'; $i=$t | Get-ScheduledTaskInfo;
 
 
 def install_schedule(monitor_from,opens_at, *, job_id=None,schedule_id=None):
+    if native.enabled():
+        return native.io('install_schedule', monitor_from=monitor_from, opens_at=opens_at,
+                         job_id=job_id, schedule_id=schedule_id)
     start=stamp(monitor_from);due=stamp(opens_at)
     if native.enabled():
         native.policy('schedule', monitor_from=monitor_from, opens_at=opens_at, now=datetime.now(timezone.utc).isoformat())
@@ -156,6 +161,8 @@ def schedule_registration(exact_name,opens_at,authorized=False,item_id=None,allo
 
 
 def cancel_schedule(identifier):
+    if native.enabled():
+        return native.io('cancel_schedule', schedule_id=valid_id(identifier))
     spec=read_spec(identifier)
     if spec.get('job_id'):
         store=Jobs(load_session()['account']);state=store.view(spec['job_id'])['state']

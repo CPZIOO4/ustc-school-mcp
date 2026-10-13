@@ -141,6 +141,13 @@ def prepare_submission(course_id, content_id, files=None, comment='', *, reuse_p
                        resubmit=False, allow_late=False, browser_factory=SubmissionBrowser, store=None):
     require(len(comment) <= 10000, '附言最多10000字符。')
     require(files is None or isinstance(files, list), 'files应为文件路径列表。')
+    if native.enabled() and browser_factory is SubmissionBrowser and store is None:
+        from . import native_io
+        assignment = locate(course_id, content_id)
+        return native_io.call('prepare', account=identity(), session_binding=session_binding(),
+                              assignment=assignment, files=files or [], comment=comment,
+                              reuse_previous_files=reuse_previous_files, resubmit=resubmit,
+                              allow_late=allow_late)
     store = store or Store()
     assignment = locate(course_id, content_id)
     with browser_factory() as browser:
@@ -178,6 +185,13 @@ def verify_files(browser, plan, current):
 
 
 def submission_status(identifier, *, verify=False, browser_factory=SubmissionBrowser, store=None):
+    if native.enabled() and browser_factory is SubmissionBrowser and store is None:
+        from . import native_io
+        account = identity()
+        result = native_io.call('status', account=account, identifier=identifier, verify=False)
+        if verify and result['state'] == 'uncertain' and result['phase'] == 'submit_requested':
+            return native_io.call('status', account=account, identifier=identifier, verify=True)
+        return result
     store = store or Store()
     job = store.get(identifier)
     plan = job['plan']
@@ -206,6 +220,18 @@ def submission_status(identifier, *, verify=False, browser_factory=SubmissionBro
 
 
 def submit_assignment(identifier, expected_sha256, *, browser_factory=SubmissionBrowser, store=None):
+    if native.enabled() and browser_factory is SubmissionBrowser and store is None:
+        from . import native_io
+        account = identity()
+        status = native_io.call('status', account=account, identifier=identifier, verify=False)
+        require(status['content_sha256'] == expected_sha256, '材料摘要不匹配，请使用准备结果中的摘要。')
+        if status['state'] != 'ready':
+            return status
+        target = status['assignment']
+        assignment = locate(target['course_id'], target['content_id'])
+        return native_io.call('submit', account=account, identifier=identifier,
+                              expected_sha256=expected_sha256, assignment=assignment,
+                              session_binding=session_binding())
     store = store or Store()
     job = store.get(identifier)
     plan = job['plan']

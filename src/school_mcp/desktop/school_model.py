@@ -31,7 +31,7 @@ def keys():
                 'note': '选择已有密钥后可在本机绑定。不会申请新项目或新额度；密钥不进入聊天。没有密钥时请先在学校模型平台申请。'}
 
 
-def import_key(data, key_id, model, notify=None):
+def import_key(data, key_id, model, notify=None, stopped=None):
     if not isinstance(key_id, str) or not re.fullmatch(r'[a-fA-F0-9-]{36}', key_id):
         raise ValueError('请选择学校平台返回的密钥。')
     if not isinstance(model, str) or not model.strip() or len(model) > 160:
@@ -51,11 +51,42 @@ def import_key(data, key_id, model, notify=None):
         # Test separately first; a failed import preserves the current provider.
         from types import SimpleNamespace
         from .storage import write_private, read_private
-        candidate = SimpleNamespace(settings_path=data.root / 'school-model-candidate.dpapi')
+        from . import native_core
+        from .app_native import call
+        candidate = SimpleNamespace(root=data.root, model_slot='candidate',
+                                    settings_path=data.root / 'school-model-candidate.dpapi')
+        result = None
+        committed = False
         try:
             save_settings(candidate, config)
-            result = test_connection(candidate, notify)
-            write_private(data.settings_path, read_private(candidate.settings_path))
+            result = test_connection(candidate, notify, stopped)
+            if result.get('connected') is True:
+                # A stop arriving after the compatibility reply must still stop
+                # the next step: replacing the user's current provider.
+                if stopped is not None and stopped.is_set():
+                    result = {'state': 'stopped', 'connected': False, 'school_data_sent': False,
+                              'note': '已停止模型导入；原模型配置保留。'}
+                else:
+                    if native_core.enabled():
+                        call(candidate, 'commit_candidate')
+                    else:
+                        write_private(data.settings_path, read_private(candidate.settings_path))
+                    committed = True
+                    result = {**result, 'provider': 'ustc', 'model': model, 'existing_key_reused': True}
         finally:
-            candidate.settings_path.unlink(missing_ok=True)
-        return {**result, 'provider': 'ustc', 'model': model, 'existing_key_reused': True}
+            try:
+                if native_core.enabled():
+                    call(candidate, 'discard_candidate')
+                else:
+                    candidate.settings_path.unlink(missing_ok=True)
+            except Exception as exc:
+                # Cleanup failure must never replace the provider's original
+                # error, or describe an already committed import as unexecuted.
+                from ..safety_log import record
+                incident = record(code='storage_failure', service='model', stage='persistence',
+                                  outcome='local_failed', exc=exc)
+                if isinstance(result, dict):
+                    result.update(candidate_cleanup_pending=True, **incident)
+                    if committed:
+                        result['note'] = '模型已连接并保存；候选配置清理未完成，已记录诊断，无需重复导入。'
+        return result

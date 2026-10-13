@@ -1,4 +1,4 @@
-//! Own the browser process tree; Playwright remains a temporary DOM adapter.
+//! Own the browser process tree for native CDP and remaining Playwright adapters.
 //! This private-pipe API cannot select an executable, profile, flags, or URL.
 use crate::{Error, Result};
 use serde_json::{json, Value};

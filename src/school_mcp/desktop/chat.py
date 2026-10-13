@@ -149,6 +149,10 @@ class ChatRunner:
 
     @staticmethod
     def validate_files(data, supplied):
+        from . import native_core
+        if native_core.enabled():
+            from .app_native import call
+            return call(data, 'validate_files', files=supplied)
         if not isinstance(supplied, list) or len(supplied) > 10 or any(not isinstance(f, str) for f in supplied):
             raise ValueError('材料须为最多 10 个已选择的文件。')
         paths = []

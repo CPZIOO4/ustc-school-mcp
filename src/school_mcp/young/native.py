@@ -1,4 +1,4 @@
-"""Private Rust business bridge. DOM and system scheduler IO stay in Python."""
+"""Private Rust bridge for business rules, fixed DOM and standalone scheduling."""
 from ..desktop import native_core
 from ..desktop.model import ModelError
 from .session import YoungError
@@ -21,6 +21,11 @@ def policy(action, **values):
 
 def parse(action, **values):
     return call('young_parse', action=action, **values)
+
+
+def io(action, **values):
+    from ..mail.config import local_dir
+    return call('young_io', action=action, directory=str(local_dir().resolve()), **values)
 
 
 def runtime_spec():

@@ -280,6 +280,10 @@ class Application:
     def upload(self, name, content):
         self.accepting()
         self.require_login()
+        from . import native_core
+        if native_core.enabled():
+            from .app_native import upload
+            return upload(self.data, name, content)
         if not name or len(name) > 180 or Path(name).name != name or any(c in name for c in '<>:"/\\|?*\x00'):
             raise ValueError('附件名称无效。')
         if not 0 < len(content) <= 50 * 1024 * 1024:
@@ -427,12 +431,12 @@ class Application:
                 raise ValueError('请先等待当前操作完成。')
             return save_settings(self.data, value)
         if path == '/api/model/test':
-            return self.start('model_test', lambda: test_connection(self.data, self.notify))
+            return self.start('model_test', lambda: test_connection(self.data, self.notify, self.stop_event))
         if path == '/api/model/connect':
             if self.busy():
                 raise ValueError('请先等待当前操作完成。')
             save_settings(self.data, value)
-            return self.start('model_test', lambda: test_connection(self.data, self.notify))
+            return self.start('model_test', lambda: test_connection(self.data, self.notify, self.stop_event))
         if path == '/api/model/models':
             if self.busy():
                 raise ValueError('请先等待当前操作完成。')
@@ -444,7 +448,7 @@ class Application:
         if path == '/api/model/school-connect':
             self.require_login()
             from .school_model import import_key
-            return self.start('school_model_import', lambda: import_key(self.data, value.get('key_id'), value.get('model'), self.notify))
+            return self.start('school_model_import', lambda: import_key(self.data, value.get('key_id'), value.get('model'), self.notify, self.stop_event))
         if path == '/api/connect':
             return self.check_service(value.get('service'), value.get('reconnect', False) is True)
         if path == '/api/email-verification':

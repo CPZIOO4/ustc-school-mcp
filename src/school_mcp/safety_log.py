@@ -48,7 +48,7 @@ MODEL_CODES |= {'model_list_invalid', 'model_connection', 'context_capacity', 'm
                 'model_auth', 'model_forbidden', 'model_not_found', 'model_request_rejected',
                 'model_incompatible', 'model_authentication', 'model_balance', 'model_http_error'}
 MODEL_CODES |= {'missing_file', 'unsupported_format', 'file_too_large', 'unreadable_file', 'text_too_large'}
-MODEL_CODES |= {'storage_failure', 'storage_capacity', 'unsupported_platform'}
+MODEL_CODES |= {'storage_failure', 'storage_capacity', 'unsupported_platform', 'model_settings_changed', 'page_changed', 'response_too_large'}
 _PACKAGE = Path(__file__).resolve().parent
 _LOCK = threading.RLock()
 

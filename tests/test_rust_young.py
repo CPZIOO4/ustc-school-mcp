@@ -163,17 +163,49 @@ class RustYoungTests(unittest.TestCase):
         session.assert_not_called();monitor.assert_not_called()
         self.assertEqual(saved.call_args.args[1]['worker_state'],'stopped')
 
+    def test_old_python_entry_cannot_run_a_pinned_native_plan(self):
+        from school_mcp.young import scheduler
+        spec={'native_runtime':native.runtime_spec(),'monitor_from':self.due.isoformat()}
+        with patch.object(scheduler,'read_spec',return_value=spec),patch.object(scheduler,'write_spec') as saved,patch.object(w,'ensure_session') as session,patch.object(w,'monitor_job') as monitor:
+            w.run_schedule('a'*32)
+        session.assert_not_called();monitor.assert_not_called()
+        self.assertEqual(saved.call_args.args[1]['worker_state'],'stopped')
+        self.assertIn('旧 Python',saved.call_args.args[1]['reason'])
+
     def test_schedule_spec_captures_core_without_registering_real_task(self):
         from school_mcp.young import scheduler
         start=self.due-timedelta(minutes=2)
         installed={'enabled':True,'start_boundary':start.isoformat()}
-        with patch.object(scheduler,'task_xml',return_value='<synthetic/>'),patch.object(scheduler,'powershell',return_value={'installed':True}) as ps,patch.object(scheduler,'inspect_schedule',return_value=installed),patch.object(scheduler,'write_spec') as write:
-            scheduler.install_schedule(start.isoformat(),self.due.isoformat(),job_id=self.job['job_id'])
-        saved=write.call_args.args[1]
-        self.assertTrue(saved['native_runtime']['required'])
-        self.assertEqual(saved['native_runtime']['path'],str(CORE.resolve()))
-        self.assertEqual(len(saved['native_runtime']['sha256']),64)
-        ps.assert_called_once()
+        with patch.object(native,'io',return_value=installed) as io,patch.object(scheduler,'powershell') as ps,patch.object(scheduler,'write_spec') as write:
+            self.assertEqual(scheduler.install_schedule(start.isoformat(),self.due.isoformat(),job_id=self.job['job_id']),installed)
+        io.assert_called_once_with('install_schedule',monitor_from=start.isoformat(),opens_at=self.due.isoformat(),job_id=self.job['job_id'],schedule_id=None)
+        ps.assert_not_called();write.assert_not_called()
+
+    def test_native_task_xml_and_cli_never_start_python(self):
+        from xml.etree import ElementTree as ET
+        identifier='c'*32
+        output=native.io('schedule_xml',schedule_id=identifier,monitor_from=self.due.isoformat())
+        document=ET.fromstring(output['xml']);ns={'t':'http://schemas.microsoft.com/windows/2004/02/mit/task'}
+        self.assertEqual(Path(document.find('.//t:Command',ns).text).resolve(),CORE.resolve())
+        arguments=document.find('.//t:Arguments',ns).text
+        self.assertIn('--young-worker --schedule-id '+identifier,arguments)
+        self.assertNotIn('python',arguments.lower())
+        self.assertEqual(document.find('.//t:LogonType',ns).text,'InteractiveToken')
+        self.assertEqual(document.find('.//t:RunLevel',ns).text,'LeastPrivilege')
+
+    def test_real_worker_cli_stops_changed_runtime_before_account_access(self):
+        identifier='d'*32
+        directory=self.directory/'isolated-cli';plans=directory/'young-schedules';plans.mkdir(parents=True)
+        path=plans/(identifier+'.json')
+        path.write_text(json.dumps({'schedule_id':identifier,'executor':'rust','cancelled':False,
+            'native_runtime':{**native.runtime_spec(),'sha256':'0'*64}}),encoding='utf-8')
+        result=subprocess.run([str(CORE),'--young-worker','--schedule-id',identifier,'--private-dir',str(directory)],
+            capture_output=True,timeout=15,creationflags=subprocess.CREATE_NO_WINDOW)
+        self.assertEqual(result.returncode,1)
+        self.assertEqual(result.stdout,b'');self.assertEqual(result.stderr,b'')
+        saved=json.loads(path.read_text(encoding='utf-8'))
+        self.assertEqual(saved['worker_state'],'stopped')
+        self.assertFalse((directory/'young-registrations.sqlite3').exists())
 
     def test_cross_account_and_stale_transition_rejected(self):
         other=r.Jobs('synthetic-other',self.directory)

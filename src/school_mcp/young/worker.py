@@ -111,6 +111,12 @@ def run_schedule(schedule_id):
         spec.update(worker_state='stopped',reason='报名计划原生核心无法核验；未访问学校或提交报名。')
         write_spec(schedule_id,spec)
         return
+    if spec.get('native_runtime') is not None:
+        # New native plans launch school-core directly. A retained old executable
+        # does not authorize new Python source to reinterpret its pinned plan.
+        spec.update(worker_state='stopped',reason='此原生计划仍指向旧 Python 启动入口；请在当前应用重新核对并建立原生计划，未访问学校或提交报名。')
+        write_spec(schedule_id,spec)
+        return
     while datetime.now(timezone.utc)<stamp(spec['monitor_from']):
         time.sleep(max(0,min(5,(stamp(spec['monitor_from'])-datetime.now(timezone.utc)).total_seconds())))
         spec=read_spec(schedule_id)

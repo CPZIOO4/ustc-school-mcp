@@ -130,25 +130,32 @@ class ModelSettings(BaseModel):
 
 
 def public_settings(data):
+    if native_core.enabled():
+        from .app_native import call
+        return call(data, 'public_settings')
     value = read_private(data.settings_path, {})
     return dict(base_url=value.get('base_url', ''), model=value.get('model', ''),
                 configured=bool(value.get('api_key')), tested=value.get('tested', False))
 
 
 def save_settings(data, value):
+    if native_core.enabled():
+        from .app_native import call
+        return call(data, 'save_settings', value=value)
     config = resolve_settings(data, value)
     write_private(data.settings_path, {**config, 'tested': False})
     return public_settings(data)
 
 
 def resolve_settings(data, value):
+    if native_core.enabled():
+        from .app_native import call
+        return call(data, 'resolve_settings', value=value)
     old = read_private(data.settings_path, {})
     if not value.get('api_key'):
         if ModelSettings.url(value.get('base_url', '')) != old.get('base_url'):
             raise ValueError('更换 API 地址时请重新填写密钥。')
         value = {**value, 'api_key': old.get('api_key', '')}
-    if native_core.enabled():
-        return native_core.call('model_validate', value)
     return ModelSettings.model_validate(value).model_dump()
 
 
@@ -162,9 +169,10 @@ def http_failure(status):
 
 
 def list_models(data, value, transport=None):
-    config = resolve_settings(data, {**value, 'model': value.get('model') or 'model-discovery'})
     if native_core.enabled() and transport is None:
-        return native_core.call('model_list', {'settings': config})
+        from .app_native import call
+        return call(data, 'list_models', value=value)
+    config = resolve_settings(data, {**value, 'model': value.get('model') or 'model-discovery'})
     try:
         with httpx.Client(timeout=20, follow_redirects=False, trust_env=False, transport=transport) as client:
             with client.stream('GET', config['base_url'] + '/models', headers={'Authorization': 'Bearer ' + config['api_key']}) as response:
@@ -232,8 +240,11 @@ class ModelClient:
             raise ModelError('invalid_model_response', '模型响应不符合 Chat Completions 格式。') from None
 
 
-def test_connection(data, notify=None):
+def test_connection(data, notify=None, stopped=None):
     notify = notify or (lambda *_: None)
+    if native_core.enabled():
+        from .app_native import test_connection as native_test
+        return native_test(data, notify, stopped)
     settings = read_private(data.settings_path, {})
     if not settings.get('api_key'):
         raise ValueError('请先保存模型 API 配置。')

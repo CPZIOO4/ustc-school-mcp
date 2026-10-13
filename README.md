@@ -1,6 +1,6 @@
 # USTC School MCP
 
-桌面客户端正迁移到 [Rust + Tauri](docs/native-desktop.md)：独立窗口、模型请求、智能体执行决策与加密记录，以及教务解析/排课、BB 作业决策、青春科大报名事务由原生核心处理，沿用本人已有数据。DOM 操作、应用协调及其余适配仍保留 Python 临时层，详细边界与旧版兼容限制见 [迁移进度](docs/rust-migration.md)。当前验收目标为 Windows，macOS/Linux/Android/iOS 尚未完成业务适配。
+桌面客户端正迁移到 [Rust + Tauri](docs/native-desktop.md)。0.7.0 核心已处理模型配置与能力测试、上传文件校验、对话中断恢复、教务解析/排课、BB 附件与提交执行，以及青春科大查询、报名监控和系统调度。BB 与青春科大的固定网页流程由 Rust 直接控制后台 Chrome；官方登录、界面请求协调及其余站点仍保留 Python 临时层。沿用本人已有数据，详细边界与旧版计划处理见 [迁移进度](docs/rust-migration.md)。当前验收目标为 Windows，macOS/Linux/Android/iOS 尚未完成业务适配。
 
 新增 [信息中心](docs/campus-digest.md)：公开就业/实习/宣讲与三个学院通知、已有校园来源汇总、按条件订阅、应用内及授权邮箱简报、课表/事项 ICS 导出。默认仅预览；用户选择来源和收件人后开启固定后台脚本。支持协调器 `digest` 流程，公开网页范围与运行限制见说明。
 
@@ -36,13 +36,15 @@ Blackboard、教务系统和个人图书馆共用经本人授权保存的统一�
 
 ## 浏览器运行约定
 
-所有需要浏览器的学校登录与后续网页适配，默认使用 **Playwright + 本机 Chrome，无头后台模式**。不依赖 Codex 内置浏览器或 Chrome 控制扩展，不创建桌面窗口或任务栏窗口。已有邮件和 HTTP 读取接口继续使用原协议。
+学校网页自动化默认使用 **本机 Chrome，无头后台模式**。原生客户端的 BB 提交和青春科大查询/报名由 Rust 通过 CDP 执行固定流程；官方登录及其他尚未迁移的网页流程继续使用 Playwright。两条路径均不依赖 Codex 内置浏览器或 Chrome 控制扩展，普通操作不创建可见 Chrome 窗口。已有邮件和 HTTP 读取接口继续使用原协议。
 
 登录复用本人授权保存的凭据与信任设备状态，凭据和会话保存在 `.local` 并用 Windows DPAPI 加密。遇到不能自动完成的身份验证，保存 `waiting_for_verification` 进度并停止，绝不自动转为可见窗口。默认登录等待上限 240 秒；已授权的邮件验证仍最多请求一次验证码。
 
-只有用户明确要求人工处理时，才使用对应登录命令的 `--headed` 参数打开可见 Chrome，例如 `python -m school_mcp young-login --headed`。常规 MCP 重新连接不带此参数。新增浏览器适配器使用 `school_mcp.browser.chrome_browser`，遵循同一约定。无头模式也需要安装本机 Chrome。
+只有用户明确要求人工处理时，才使用对应登录命令的 `--headed` 参数打开可见 Chrome，例如 `python -m school_mcp young-login --headed`。常规 MCP 重新连接不带此参数。Python 适配器使用 `school_mcp.browser.chrome_browser`；原生适配器使用内部 Rust CDP 驱动并提供站点请求约束，不向模型开放任意 JavaScript、网址或浏览器命令。无头模式也需要安装本机 Chrome。
 
 青春科大支持后台登录、连接检查、全校数据大屏、当前报名项目查询及已授权的普通单次线下活动定时报名。定时工具启动独立脚本监控，支持完整名称或授权关键词与开放时间匹配，候选须唯一；附加资料、作品提交及特殊报名流程未适配。启动服务：`python -m school_mcp young-serve`。见[定时报名流程与限制](docs/young-registration.md)。
+
+0.7.0 原生报名计划直接启动 `school-core.exe`，不需要 AI 或 Python worker 持续运行。计划固定核心版本、文件摘要和账号；会话需要重新认证时停止，由用户在账号页处理。旧 0.6 原生计划须在当前应用重新复核；不得通过旧 Python 入口、删除记录或重建未知结果任务来重复报名。当前原生流程使用合成数据和后台 Chrome 验证，不能据此认定所有真实账号和项目均已验收。
 
 ## 当前能力
 
