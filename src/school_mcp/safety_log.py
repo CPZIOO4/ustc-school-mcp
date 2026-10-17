@@ -107,6 +107,26 @@ def configure_desktop(root):
     os.environ['SCHOOL_MCP_DIAGNOSTICS_DIR'] = str(desktop_directory(root))
 
 
+def _native(operation, root=None, **values):
+    from .desktop import native_core
+    # Do not resolve symlinks here: Rust must see and reject redirected paths.
+    if root is not None:
+        directory_path = Path(root)
+    elif os.environ.get('SCHOOL_MCP_DIAGNOSTICS_DIR'):
+        directory_path = Path(os.environ['SCHOOL_MCP_DIAGNOSTICS_DIR'])
+    elif os.environ.get('SCHOOL_MCP_LOCAL_DIR'):
+        directory_path = Path(os.environ['SCHOOL_MCP_LOCAL_DIR']).expanduser() / 'diagnostics'
+    else:
+        directory_path = directory()
+    return native_core.call('safety_log_' + operation,
+                            {'directory': str(directory_path.absolute()), **values})
+
+
+def _native_enabled():
+    from .desktop import native_core
+    return native_core.enabled()
+
+
 def _frames(exc):
     output, seen = [], set()
     while exc is not None and id(exc) not in seen and len(seen) < 8:
@@ -227,6 +247,10 @@ def record(*, code='unavailable', service='app', stage='tool', tool='', outcome=
                             outcome=outcome, exception=type(exc).__name__ if exc is not None else 'Exception',
                             frames=_frames(exc), first_at=now, last_at=now, count=1,
                             duration_ms=duration_ms, build=_build(), platform=sys.platform))
+        if _native_enabled():
+            # Python exceptions never cross the pipe. Rust independently filters
+            # these fixed fields and owns persistence, aggregation and limits.
+            return _native('record', root, event=event)
         signature = hashlib.sha256(json.dumps({k: event[k] for k in
             ('code', 'service', 'stage', 'tool', 'outcome', 'exception', 'frames', 'build')}, sort_keys=True).encode()).hexdigest()
         with _db(root) as db:
@@ -263,6 +287,8 @@ def attach(problem, *, service='app', stage='tool', tool='', exc=None, outcome=N
 
 def report(root=None):
     try:
+        if _native_enabled():
+            return _native('report', root)
         with _db(root) as db:
             rows = db.execute('SELECT payload FROM events ORDER BY last_at DESC, rowid DESC LIMIT ?', (MAX_EVENTS,)).fetchall()
         events = [_clean(json.loads(row[0])) for row in rows]
@@ -278,6 +304,13 @@ def report(root=None):
 
 
 def summary(root=None):
+    if _native_enabled():
+        try:
+            return _native('summary', root)
+        except Exception:
+            return dict(available=False, incident_count=0, occurrence_count=0,
+                        latest_error_id=None, note='诊断记录无法读取，请检查磁盘、目录权限或日志文件是否损坏。',
+                        automatic_upload=False)
     value = report(root)
     events = value['events']
     return dict(available=value['available'], incident_count=len(events),
@@ -287,6 +320,11 @@ def summary(root=None):
 
 def clear(root=None):
     # Delete known diagnostic files only; never touch business receipts or sessions.
+    if _native_enabled():
+        try:
+            return _native('clear', root)
+        except Exception:
+            raise ValueError('日志清理未完成，请检查磁盘和目录权限；业务记录保留。') from None
     root = Path(root) if root is not None else directory()
     if root.is_symlink():
         raise ValueError('诊断目录校验失败。')

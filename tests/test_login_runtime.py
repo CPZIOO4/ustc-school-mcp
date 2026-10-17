@@ -77,6 +77,16 @@ class LoginRuntimeTests(unittest.TestCase):
         self.assertEqual(result["status_tool"], "school_bb_auth_status")
         spawn.assert_not_called()
 
+    def test_identity_login_uses_fixed_command_and_shares_station_lock(self):
+        with patch.object(runtime.subprocess, 'Popen', return_value=Mock(pid=123)) as spawn:
+            result = runtime.start_login('identity', Mock(), RuntimeError)
+        self.assertEqual(spawn.call_args.args[0][-1], 'identity-login')
+        self.assertEqual(result['status_tool'], 'school_bb_identity_status')
+        with patch.object(runtime, 'worker_running', return_value=True), patch.object(runtime.subprocess, 'Popen') as spawn:
+            result = runtime.start_login('jw', Mock(), RuntimeError)
+        self.assertEqual(result['busy_service'], 'identity')
+        spawn.assert_not_called()
+
     def test_recycled_pid_cannot_block_login_or_appear_running(self):
         self.saved('connected')
         recorded = (Path(self.directory.name) / 'bb-login.pid').stat().st_mtime

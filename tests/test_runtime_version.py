@@ -116,6 +116,35 @@ class RuntimeVersionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 monitor.report(value)
 
+    def test_frozen_engine_checks_binary_and_fixed_resources_without_source_files(self):
+        package = self.root / '_internal/school_mcp'
+        package.mkdir(parents=True)
+        names = ('diagnostic-build.json', 'agent/catalog_data.json', 'desktop/chat_resources.json')
+        for name in names:
+            target = package / name
+            target.parent.mkdir(exist_ok=True)
+            target.write_text('{"synthetic":1}')
+        executable = self.root / 'synthetic-engine.exe'
+        executable.write_bytes(b'synthetic compiled code')
+        with patch.object(sys, 'frozen', True, create=True), \
+             patch.object(sys, '_MEIPASS', str(package.parent), create=True), \
+             patch.object(sys, 'executable', str(executable)):
+            monitor = RuntimeMonitor(package)
+            initial = monitor.report()
+            self.assertEqual(initial['state'], 'current')
+            self.assertEqual(initial['scope'], 'calling_process_startup_vs_frozen_bundle')
+            self.assertTrue(monitor.report(initial['startup_fingerprint'])['expected_matches'])
+            (self.root / 'private.txt').write_text('synthetic private data')
+            self.assertEqual(monitor.report()['state'], 'current')
+            executable.write_bytes(b'synthetic changed compiled code')
+            self.assertEqual(monitor.report()['state'], 'restart_required')
+            monitor = RuntimeMonitor(package)
+            (package / names[1]).write_text('{"synthetic":2}')
+            self.assertEqual(monitor.report()['state'], 'restart_required')
+            (package / names[2]).unlink()
+            self.assertEqual(monitor.report()['state'], 'check_failed')
+            self.assertEqual(RuntimeMonitor(self.package).report()['state'], 'check_failed')
+
     def test_real_stdio_old_process_detects_update_then_new_process_matches(self):
         from mcp import ClientSession, StdioServerParameters
         from mcp.client.stdio import stdio_client

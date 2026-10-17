@@ -10,15 +10,12 @@ fn main() {
     if arguments.len() == 4 && arguments[..3] == ["--desktop", "--native-stdio", "--data-dir"] {
         let root = std::path::Path::new(&arguments[3]);
         let result = school_core::legacy::Bridge::new(root).and_then(|bridge| {
-            use school_core::chat_io::Legacy;
             let bridge = std::sync::Arc::new(bridge);
             let result = school_core::desktop::run(root, true, bridge.clone());
             if result.is_err() && root.join("school-desktop.json").is_file() {
-                let _ = bridge.call(
-                    "diagnostics_record",
-                    json!({"code":"startup_failed","stage":"startup","outcome":"not_started"}),
-                    &std::sync::atomic::AtomicBool::new(false),
-                    &|_, _| {},
+                school_core::safety_log::record(
+                    &root.join("diagnostics"),
+                    &json!({"code":"startup_failed","stage":"startup","outcome":"not_started"}),
                 );
             }
             result

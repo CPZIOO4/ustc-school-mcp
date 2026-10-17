@@ -104,7 +104,7 @@ pub fn launch(resources: PathBuf, data_dir: PathBuf) -> Result<Backend, String> 
         return Err("本地业务引擎版本不兼容。".into());
     }
     if hello.core.as_ref().is_none_or(|c| {
-        c["implementation"] != "rust" || c["version"] != "0.8.0" || c["desktop_backend"] != "rust"
+        c["implementation"] != "rust" || c["version"] != "0.9.0" || c["desktop_backend"] != "rust"
     }) {
         return Err(
             "原应用仍在使用旧引擎；请先在原应用中结束任务并退出，再打开新版。登录态会保留。".into(),

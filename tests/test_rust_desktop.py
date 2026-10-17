@@ -52,7 +52,7 @@ class RustDesktopTests(unittest.TestCase):
                 with concurrent.futures.ThreadPoolExecutor() as pool:
                     hello = json.loads(pool.submit(process.stdout.readline).result(30))
                 self.assertEqual(hello['core']['desktop_backend'], 'rust')
-                self.assertEqual(hello['core']['version'], '0.8.0')
+                self.assertEqual(hello['core']['version'], '0.9.0')
                 self.assertTrue(hello['owned'])
                 second = subprocess.run(cmd, input=b'', capture_output=True, timeout=20, env=env,
                                         creationflags=subprocess.CREATE_NO_WINDOW)

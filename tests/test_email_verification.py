@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 from playwright.sync_api import Error as PlaywrightError, sync_playwright
 
-from school_mcp.bb.email_verification import EmailVerification, MailCodeRequest, extract_code, matches_address
+from school_mcp.bb.email_verification import EmailVerification, MailCodeRequest, extract_code, matches_address, matches_cas_mask
 from school_mcp.mail.config import MailError
 
 ADDRESS = "synthetic-user@mail.ustc.edu.cn"
@@ -26,6 +26,31 @@ def mailbox(messages):
 
 
 class MailCodeTests(unittest.TestCase):
+    def test_cas_whole_address_mask_is_exact_and_does_not_widen_normal_masks(self):
+        masked = ADDRESS[:3] + '*' * (len(ADDRESS) - 7) + ADDRESS[-4:]
+        self.assertTrue(matches_cas_mask(ADDRESS, masked))
+        for value in (masked.replace('*', '', 1), 'bad' + masked[3:], masked[:-1] + 'x', '*' * len(ADDRESS)):
+            self.assertFalse(matches_cas_mask(ADDRESS, value))
+        self.assertFalse(matches_address(ADDRESS, masked))
+
+    def test_fallback_watermark_rejects_existing_uid_and_accepts_uid_gaps(self):
+        client = mailbox([verification_mail(uid=97), verification_mail(uid=101)])
+        client.verification_snapshot.return_value = {'uid_validity': 123, 'watermark_uid': 97}
+        self.assertEqual(MailCodeRequest(client).poll(), '654321')
+        self.assertEqual(client.read.call_args.args, (101, 123))
+
+    def test_async_challenge_has_bounded_render_grace(self):
+        verification = EmailVerification(True, Mock(), Mock(), expected_address=ADDRESS)
+        with patch('school_mcp.bb.email_verification.time.monotonic', return_value=10):
+            self.assertFalse(verification.needs_manual('二次身份验证'))
+        with patch('school_mcp.bb.email_verification.time.monotonic', return_value=24):
+            self.assertFalse(verification.needs_manual('二次身份验证'))
+        with patch('school_mcp.bb.email_verification.time.monotonic', return_value=25):
+            self.assertTrue(verification.needs_manual('二次身份验证'))
+        self.assertFalse(verification.needs_manual('登录成功'))
+        self.assertIsNone(verification.challenge_seen_at)
+        self.assertTrue(EmailVerification(False, Mock(), Mock()).needs_manual('二次身份验证'))
+
     def test_masked_target_must_match_the_connected_mailbox(self):
         self.assertTrue(matches_address(ADDRESS, "synthetic-****@mail.ustc.edu.cn"))
         self.assertFalse(matches_address(ADDRESS, "someone-****@mail.ustc.edu.cn"))
@@ -124,6 +149,26 @@ class VerificationBrowserTests(unittest.TestCase):
         self.assertTrue(self.verifier.blocked)
         self.assertEqual(self.page.evaluate("window.requests"), 1)
         self.assertEqual(self.page.evaluate("window.submissions"), 1)
+
+    def test_current_cas_tab_mask_and_bind_help_are_supported(self):
+        mask = ADDRESS[:3] + '*' * (len(ADDRESS) - 7) + ADDRESS[-4:]
+        html = self.fixture().replace('可信邮箱验证', '二次身份验证 邮件验证码')
+        html = html.replace(f'<p>{ADDRESS}</p>', f'<p>已绑定密保邮箱：{mask}</p><a>如何绑定邮箱</a>')
+        self.show(html)
+        client = mailbox([verification_mail()])
+        with patch('school_mcp.bb.email_verification.load_config', return_value=client.config), patch('school_mcp.bb.email_verification.MailClient', return_value=client):
+            self.verifier.step(self.page)
+            self.verifier.step(self.page)
+        self.assertEqual(self.page.evaluate('window.requests'), 1)
+        self.assertEqual(self.page.evaluate('window.submissions'), 1)
+        self.assertNotIn('654321', repr(self.notifications.mock_calls))
+
+    def test_account_binding_form_cannot_request_login_code(self):
+        self.show(self.fixture().replace('可信邮箱验证', '绑定邮箱 邮件验证码'))
+        with patch('school_mcp.bb.email_verification.MailClient') as client:
+            self.verifier.step(self.page)
+        client.assert_not_called()
+        self.assertFalse(self.verifier.requested)
 
     def test_wait_timeout_does_not_resend_or_read_old_mail(self):
         self.show(self.fixture())

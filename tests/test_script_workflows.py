@@ -342,14 +342,14 @@ class WorkflowTests(unittest.TestCase):
     def test_ambiguous_bb_course_never_prepares_submission(self):
         from school_mcp.bb.client import BBClient
         from school_mcp.bb import submissions
-        with patch.object(BBClient, 'courses', return_value={'courses': [{'course_id': '1'}, {'course_id': '2'}]}), patch.object(submissions, 'prepare_submission') as prepare:
+        with patch.object(BBClient, '__init__', return_value=None), patch.object(BBClient, 'courses', return_value={'courses': [{'course_id': '1'}, {'course_id': '2'}]}), patch.object(submissions, 'prepare_submission') as prepare:
             result = flows.prepare_bb_by_name('synthetic', 'homework')
         self.assertEqual(result['state'], 'needs_input')
         prepare.assert_not_called()
 
     def test_enrollment_open_stops_without_mutation(self):
         from school_mcp.jw.academic import AcademicClient
-        with patch.object(AcademicClient, 'window', return_value={'state': 'requires_live_contract'}), patch.object(flows, 'find_offering', return_value={'capacity': None, 'selected_count': 3}):
+        with patch.object(AcademicClient, '__init__', return_value=None), patch.object(AcademicClient, 'window', return_value={'state': 'requires_live_contract'}), patch.object(flows, 'find_offering', return_value={'capacity': None, 'selected_count': 3}):
             state, result, _ = flows.step('id', dict(kind='jw_watch', parameters=dict(semester_id=1, keyword='synthetic', lesson_id=9, minimum_seats=1), checkpoint={}), Mock())
         self.assertEqual(state, 'review')
         self.assertIsNone(result['available_seats'])
@@ -357,7 +357,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_open_full_course_keeps_watching_for_seats(self):
         from school_mcp.jw.academic import AcademicClient
-        with patch.object(AcademicClient, 'window', return_value={'state': 'requires_live_contract'}), patch.object(flows, 'find_offering', return_value={'capacity': 30, 'selected_count': 30}):
+        with patch.object(AcademicClient, '__init__', return_value=None), patch.object(AcademicClient, 'window', return_value={'state': 'requires_live_contract'}), patch.object(flows, 'find_offering', return_value={'capacity': 30, 'selected_count': 30}):
             state, result, _ = flows.step('id', dict(kind='jw_watch', parameters=dict(semester_id=1, keyword='synthetic', lesson_id=9, minimum_seats=1), checkpoint={}), Mock())
         self.assertEqual(state, 'waiting')
         self.assertEqual(result['outcome'], 'waiting_for_seats')

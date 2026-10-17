@@ -70,7 +70,7 @@ def run(timeout_seconds: int = 240):
                         verification.observe_result(text)
                         if re.search(r"密码错误|用户名或密码不正确|Invalid credentials", text, re.I):
                             raise YoungError("学校未接受已保存的凭据，已停止自动重试。")
-                        if not verification.last_stage and re.search(r"验证码|动态口令|二次验证|Verification code",text,re.I):
+                        if verification.needs_manual(text):
                             login_state("waiting_for_verification", "学校要求人工身份验证。")
                 if host == HOST and authenticated_page(page):
                     state = context.storage_state(indexed_db=True)

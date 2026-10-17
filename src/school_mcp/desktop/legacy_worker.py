@@ -91,8 +91,8 @@ def dispatch(data, action, value, stopped, notify):
     if action == 'mail_bind':
         from ..mail.browser_setup import run
         progress = lambda v: notify(v.get('state', 'binding'), v.get('next_step', '请完成邮箱登录。'))
-        return run(resume=True, notify=progress) if value.get('resume') is True else run(
-            headed=True, create_client_password=True, notify=progress)
+        return run(resume=True, notify=progress, stopped=stopped) if value.get('resume') is True else run(
+            headed=True, create_client_password=True, notify=progress, stopped=stopped)
     if action == 'tasks_list':
         from ..agent.server import school_agent_tasks
         return school_agent_tasks(offset=value.get('offset', 0), limit=20)

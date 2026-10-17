@@ -11,12 +11,18 @@ from pathlib import Path
 from .mail.config import local_dir
 from . import network
 
-SERVICES = ("bb", "jw", "library", "nan7", "young", "finance")
+SERVICES = ("identity", "bb", "jw", "library", "nan7", "young", "finance")
 TERMINAL = {"connected", "cancelled", "error", "waiting_for_verification"}
 
 
 def status_tool(adapter: str) -> str:
+    if adapter == 'identity':
+        return 'school_bb_identity_status'
     return "school_bb_auth_status" if adapter == "bb" else f"school_{adapter}_status"
+
+
+def reconnect_tool(adapter: str) -> str:
+    return 'school_bb_identity_reconnect' if adapter == 'identity' else f'school_{adapter}_reconnect'
 
 
 def progress_path(adapter: str) -> Path:
@@ -110,19 +116,19 @@ def progress(adapter: str) -> dict:
     alive = worker_running(adapter, pid) if pid else None
     result = {"login_progress": data, "login_running": alive, "network_checked": False,
               "connection_state": "unchecked", "status_tool": status_tool(adapter),
-              "check_tool": f"school_{adapter}_check_connection"}
+              "check_tool": 'school_bb_identity_check_connection' if adapter == 'identity' else f"school_{adapter}_check_connection"}
     if data and data["stage"] not in TERMINAL and alive is False:
         result["login_progress"] = {**data, "last_reported_stage": data["stage"], "stage": "interrupted",
             "detail": "登录进程已退出，未报告成功。请重新连接；不要继续等待旧进度。"}
-        result["next_step"] = f"调用 school_{adapter}_reconnect 重新启动后台登录。"
+        result["next_step"] = f"调用 {reconnect_tool(adapter)} 重新启动后台登录。"
     elif data and data["stage"] == "waiting_for_verification":
         result["next_step"] = f"需要人工验证；明确选择后运行 python -m school_mcp {adapter}-login --headed。"
     elif alive:
         result["next_step"] = f"后台登录仍在运行，稍后调用 {status_tool(adapter)}；不要重复启动。"
     elif data and data["stage"] in {"error", "cancelled"}:
-        result["next_step"] = f"上次登录未完成，请根据进度中的原因处理后调用 school_{adapter}_reconnect。"
+        result["next_step"] = f"上次登录未完成，请根据进度中的原因处理后调用 {reconnect_tool(adapter)}。"
     else:
-        result["next_step"] = f"调用 school_{adapter}_check_connection 验证当前连接。"
+        result["next_step"] = f"调用 {result['check_tool']} 验证当前连接。"
     return result
 
 

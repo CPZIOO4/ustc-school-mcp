@@ -192,7 +192,8 @@
         "school_mail_save_classification_rules": "execute",
         "school_mail_cancel_draft": "execute",
         "school_mail_schedule_workflow": "execute",
-        "school_mail_cancel_script": "execute"
+        "school_mail_cancel_script": "execute",
+        "school_mail_runtime_status": "read"
       }
     },
     "bb": {
@@ -222,7 +223,10 @@
         "school_bb_submit_assignment": "execute",
         "school_bb_schedule_submission": "execute",
         "school_bb_cancel_script": "execute",
-        "school_bb_reconnect": "login"
+        "school_bb_reconnect": "login",
+        "school_bb_runtime_status": "read",
+        "school_bb_query": "read",
+        "school_bb_prepare_assignment_files": "prepare"
       }
     },
     "timetable": {
@@ -250,7 +254,9 @@
         "school_jw_script_status": "read",
         "school_jw_schedule_enrollment_watch": "execute",
         "school_jw_cancel_script": "execute",
-        "school_jw_reconnect": "login"
+        "school_jw_reconnect": "login",
+        "school_jw_runtime_status": "read",
+        "school_jw_query": "read"
       }
     },
     "academic": {
@@ -275,7 +281,9 @@
         "school_jw_timetable": "read",
         "school_jw_grades": "read",
         "school_jw_course_schedule": "read",
-        "school_jw_reconnect": "login"
+        "school_jw_reconnect": "login",
+        "school_jw_runtime_status": "read",
+        "school_jw_query": "read"
       }
     },
     "young": {
@@ -303,7 +311,9 @@
         "school_young_run_registration": "execute",
         "school_young_cancel_schedule": "execute",
         "school_young_cancel_registration_task": "execute",
-        "school_young_reconnect": "login"
+        "school_young_reconnect": "login",
+        "school_young_runtime_status": "read",
+        "school_young_query": "read"
       }
     },
     "finance": {
@@ -324,7 +334,9 @@
         "school_finance_inspect_smart": "read",
         "school_finance_workflow_guide": "read",
         "school_finance_preflight": "read",
-        "school_finance_reconnect": "login"
+        "school_finance_reconnect": "login",
+        "school_finance_runtime_status": "read",
+        "school_finance_query": "read"
       }
     },
     "library": {
@@ -344,7 +356,9 @@
         "school_library_list_loans": "read",
         "school_library_loan_history": "read",
         "school_library_list_services": "read",
-        "school_library_reconnect": "login"
+        "school_library_reconnect": "login",
+        "school_library_runtime_status": "read",
+        "school_library_query": "read"
       }
     },
     "teach": {
@@ -362,7 +376,8 @@
         "school_teach_list_categories": "read",
         "school_teach_list_notices": "read",
         "school_teach_search": "read",
-        "school_teach_read_article": "read"
+        "school_teach_read_article": "read",
+        "school_teach_runtime_status": "read"
       }
     },
     "icourse": {
@@ -388,7 +403,8 @@
         "school_icourse_review_status": "read",
         "school_icourse_tasks": "read",
         "school_icourse_prepare_review": "prepare",
-        "school_icourse_publish_review": "execute"
+        "school_icourse_publish_review": "execute",
+        "school_icourse_runtime_status": "read"
       }
     },
     "nan7": {
@@ -412,7 +428,26 @@
         "school_nan7_tasks": "read",
         "school_nan7_prepare_offer": "prepare",
         "school_nan7_publish_offer": "execute",
-        "school_nan7_reconnect": "login"
+        "school_nan7_reconnect": "login",
+        "school_nan7_runtime_status": "read",
+        "school_nan7_query": "read"
+      }
+    },
+    "identity": {
+      "service": "bb",
+      "label": "统一身份登录与设备信任",
+      "keywords": [
+        "统一登录",
+        "统一身份",
+        "统一认证",
+        "信任设备",
+        "身份登录"
+      ],
+      "reference": "identity-login.md",
+      "tools": {
+        "school_bb_identity_status": "read",
+        "school_bb_identity_reconnect": "login",
+        "school_bb_identity_check_connection": "read"
       }
     }
   },
@@ -433,7 +468,8 @@
     "library": "summary",
     "teach": "search",
     "icourse": "search_courses",
-    "nan7": "search_offers"
+    "nan7": "search_offers",
+    "identity": "identity_status"
   },
   "services": {
     "digest": {
@@ -2997,6 +3033,27 @@
             "title": "mail_workflowArguments",
             "type": "object"
           }
+        },
+        "school_mail_runtime_status": {
+          "description": "离线检查本服务进程启动时的源码/依赖指纹与当前磁盘。restart_required 表示需要重载；更新后使用 bootstrap verify 给出的 expected_fingerprint 在当前客户端调用本工具，核对 current、expected_matches=true。instance_id 可区分进程；工具不存在说明需先重载旧版。不会重启、联网、读取凭据或证明账号连接。",
+          "input_schema": {
+            "properties": {
+              "expected_fingerprint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Expected Fingerprint"
+              }
+            },
+            "title": "runtime_statusArguments",
+            "type": "object"
+          }
         }
       }
     },
@@ -3551,6 +3608,131 @@
               }
             },
             "title": "tasksArguments",
+            "type": "object"
+          }
+        },
+        "school_bb_runtime_status": {
+          "description": "离线检查本服务进程启动时的源码/依赖指纹与当前磁盘。restart_required 表示需要重载；更新后使用 bootstrap verify 给出的 expected_fingerprint 在当前客户端调用本工具，核对 current、expected_matches=true。instance_id 可区分进程；工具不存在说明需先重载旧版。不会重启、联网、读取凭据或证明账号连接。",
+          "input_schema": {
+            "properties": {
+              "expected_fingerprint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Expected Fingerprint"
+              }
+            },
+            "title": "runtime_statusArguments",
+            "type": "object"
+          }
+        },
+        "school_bb_query": {
+          "description": "只读业务查询及一次登录恢复。operation 限枚举，parameters 使用对应客户端只读方法参数。已获用户登录授权时设 login_authorized=true；默认仅查询。脚本仅在明确认证失效时重登，沿用已有邮件验证许可，wait_seconds=0–30；完成后继续原查询。返回 completed/data 或明确停止状态，冷却/403/未知失败不重登。不支持发送、发布、上传、选退课或任何写操作。参数：check() -> 'dict'; courses(keyword: 'str' = '', term: 'str' = '') -> 'dict'; announcements(course_id: 'str', max_chars: 'int' = 6000) -> 'dict'; course_page(course_id: 'str', max_chars: 'int' = 6000) -> 'dict'; read_page(path: 'str' = '/webapps/portal/execute/tabs/tabAction?tab_tab_group_id=_1_1', max_chars: 'int' = 6000) -> 'dict'",
+          "input_schema": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "check",
+                  "courses",
+                  "announcements",
+                  "course_page",
+                  "read_page"
+                ],
+                "title": "Operation",
+                "type": "string"
+              },
+              "parameters": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Parameters"
+              },
+              "login_authorized": {
+                "default": false,
+                "title": "Login Authorized",
+                "type": "boolean"
+              },
+              "wait_seconds": {
+                "default": 20,
+                "title": "Wait Seconds",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "title": "read_with_recoveryArguments",
+            "type": "object"
+          }
+        },
+        "school_bb_prepare_assignment_files": {
+          "description": "按当前作业条目核对并加密冻结用户指定文件，仅准备本地材料，不上传、不提交。1–10个绝对文件路径，合计50MiB是本地限制而非平台限制。返回prepared_locally，不得称作提交成功。此旧工具的ID不可用于提交；需要实际交作业请使用school_bb_prepare_submission。",
+          "input_schema": {
+            "properties": {
+              "course_id": {
+                "title": "Course Id",
+                "type": "string"
+              },
+              "content_id": {
+                "title": "Content Id",
+                "type": "string"
+              },
+              "files": {
+                "items": {
+                  "type": "string"
+                },
+                "title": "Files",
+                "type": "array"
+              },
+              "comment": {
+                "default": "",
+                "title": "Comment",
+                "type": "string"
+              }
+            },
+            "required": [
+              "course_id",
+              "content_id",
+              "files"
+            ],
+            "title": "school_bb_prepare_assignment_filesArguments",
+            "type": "object"
+          }
+        },
+        "school_bb_identity_status": {
+          "description": "查看共享统一身份登录流程进度、邮箱回退授权与本地保存状态；不联网，不返回密码、验证码或 Cookie。历史 connected 需 check_connection 核验。",
+          "input_schema": {
+            "properties": {},
+            "title": "school_bb_identity_statusArguments",
+            "type": "object"
+          }
+        },
+        "school_bb_identity_reconnect": {
+          "description": "已获用户登录授权后启动固定统一认证流程：后台 Chrome 恢复信任状态，必要时使用本机凭据、核对密保邮箱、只请求一次新邮件验证码；加密保存后用独立会话核验复用。仅认证成功不等于 BB/教务等已连接，随后检查目标网站。与其他登录互斥，不接受密码、OTP、网址或脚本参数。",
+          "input_schema": {
+            "properties": {},
+            "title": "school_bb_identity_reconnectArguments",
+            "type": "object"
+          }
+        },
+        "school_bb_identity_check_connection": {
+          "description": "后台使用加密保存的统一身份状态打开官方个人中心，核验能否复用；不输入密码、不发送或读取验证码、不重写会话。失败不清除旧状态。",
+          "input_schema": {
+            "properties": {},
+            "title": "school_bb_identity_check_connectionArguments",
             "type": "object"
           }
         }
@@ -4317,6 +4499,74 @@
             "title": "school_jw_course_scheduleArguments",
             "type": "object"
           }
+        },
+        "school_jw_runtime_status": {
+          "description": "离线检查本服务进程启动时的源码/依赖指纹与当前磁盘。restart_required 表示需要重载；更新后使用 bootstrap verify 给出的 expected_fingerprint 在当前客户端调用本工具，核对 current、expected_matches=true。instance_id 可区分进程；工具不存在说明需先重载旧版。不会重启、联网、读取凭据或证明账号连接。",
+          "input_schema": {
+            "properties": {
+              "expected_fingerprint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Expected Fingerprint"
+              }
+            },
+            "title": "runtime_statusArguments",
+            "type": "object"
+          }
+        },
+        "school_jw_query": {
+          "description": "只读业务查询及一次登录恢复。operation 限枚举，parameters 使用对应客户端只读方法参数。已获用户登录授权时设 login_authorized=true；默认仅查询。脚本仅在明确认证失效时重登，沿用已有邮件验证许可，wait_seconds=0–30；完成后继续原查询。返回 completed/data 或明确停止状态，冷却/403/未知失败不重登。不支持发送、发布、上传、选退课或任何写操作。参数：check() -> 'dict'; courses(semester_id: 'int' = 0, keyword: 'str' = '') -> 'dict'; semesters() -> 'dict'; timetable(semester_id: 'int' = 0, week: 'int' = 0, weekday: 'int' = 0) -> 'dict'; grades(semester_id: 'int' = 0, train_type_id: 'int' = 1, keyword: 'str' = '', summary_only: 'bool' = False) -> 'dict'; modules() -> 'dict'",
+          "input_schema": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "check",
+                  "courses",
+                  "semesters",
+                  "timetable",
+                  "grades",
+                  "modules"
+                ],
+                "title": "Operation",
+                "type": "string"
+              },
+              "parameters": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Parameters"
+              },
+              "login_authorized": {
+                "default": false,
+                "title": "Login Authorized",
+                "type": "boolean"
+              },
+              "wait_seconds": {
+                "default": 20,
+                "title": "Wait Seconds",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "title": "read_with_recoveryArguments",
+            "type": "object"
+          }
         }
       }
     },
@@ -4728,6 +4978,70 @@
             "title": "tasksArguments",
             "type": "object"
           }
+        },
+        "school_young_runtime_status": {
+          "description": "离线检查本服务进程启动时的源码/依赖指纹与当前磁盘。restart_required 表示需要重载；更新后使用 bootstrap verify 给出的 expected_fingerprint 在当前客户端调用本工具，核对 current、expected_matches=true。instance_id 可区分进程；工具不存在说明需先重载旧版。不会重启、联网、读取凭据或证明账号连接。",
+          "input_schema": {
+            "properties": {
+              "expected_fingerprint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Expected Fingerprint"
+              }
+            },
+            "title": "runtime_statusArguments",
+            "type": "object"
+          }
+        },
+        "school_young_query": {
+          "description": "只读业务查询及一次登录恢复。operation 限枚举，parameters 使用对应客户端只读方法参数。已获用户登录授权时设 login_authorized=true；默认仅查询。脚本仅在明确认证失效时重登，沿用已有邮件验证许可，wait_seconds=0–30；完成后继续原查询。返回 completed/data 或明确停止状态，冷却/403/未知失败不重登。不支持发送、发布、上传、选退课或任何写操作。参数：check() -> 'dict'; home(max_chars: 'int' = 4000) -> 'dict'",
+          "input_schema": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "check",
+                  "home"
+                ],
+                "title": "Operation",
+                "type": "string"
+              },
+              "parameters": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Parameters"
+              },
+              "login_authorized": {
+                "default": false,
+                "title": "Login Authorized",
+                "type": "boolean"
+              },
+              "wait_seconds": {
+                "default": 20,
+                "title": "Wait Seconds",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "title": "read_with_recoveryArguments",
+            "type": "object"
+          }
         }
       }
     },
@@ -5059,6 +5373,71 @@
             "title": "school_finance_preflightArguments",
             "type": "object"
           }
+        },
+        "school_finance_runtime_status": {
+          "description": "离线检查本服务进程启动时的源码/依赖指纹与当前磁盘。restart_required 表示需要重载；更新后使用 bootstrap verify 给出的 expected_fingerprint 在当前客户端调用本工具，核对 current、expected_matches=true。instance_id 可区分进程；工具不存在说明需先重载旧版。不会重启、联网、读取凭据或证明账号连接。",
+          "input_schema": {
+            "properties": {
+              "expected_fingerprint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Expected Fingerprint"
+              }
+            },
+            "title": "runtime_statusArguments",
+            "type": "object"
+          }
+        },
+        "school_finance_query": {
+          "description": "只读业务查询及一次登录恢复。operation 限枚举，parameters 使用对应客户端只读方法参数。已获用户登录授权时设 login_authorized=true；默认仅查询。脚本仅在明确认证失效时重登，沿用已有邮件验证许可，wait_seconds=0–30；完成后继续原查询。返回 completed/data 或明确停止状态，冷却/403/未知失败不重登。不支持发送、发布、上传、选退课或任何写操作。参数：check(); services(); inspect_smart()",
+          "input_schema": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "check",
+                  "services",
+                  "inspect_smart"
+                ],
+                "title": "Operation",
+                "type": "string"
+              },
+              "parameters": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Parameters"
+              },
+              "login_authorized": {
+                "default": false,
+                "title": "Login Authorized",
+                "type": "boolean"
+              },
+              "wait_seconds": {
+                "default": 20,
+                "title": "Wait Seconds",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "title": "read_with_recoveryArguments",
+            "type": "object"
+          }
         }
       }
     },
@@ -5136,6 +5515,72 @@
           "input_schema": {
             "properties": {},
             "title": "school_library_list_servicesArguments",
+            "type": "object"
+          }
+        },
+        "school_library_runtime_status": {
+          "description": "离线检查本服务进程启动时的源码/依赖指纹与当前磁盘。restart_required 表示需要重载；更新后使用 bootstrap verify 给出的 expected_fingerprint 在当前客户端调用本工具，核对 current、expected_matches=true。instance_id 可区分进程；工具不存在说明需先重载旧版。不会重启、联网、读取凭据或证明账号连接。",
+          "input_schema": {
+            "properties": {
+              "expected_fingerprint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Expected Fingerprint"
+              }
+            },
+            "title": "runtime_statusArguments",
+            "type": "object"
+          }
+        },
+        "school_library_query": {
+          "description": "只读业务查询及一次登录恢复。operation 限枚举，parameters 使用对应客户端只读方法参数。已获用户登录授权时设 login_authorized=true；默认仅查询。脚本仅在明确认证失效时重登，沿用已有邮件验证许可，wait_seconds=0–30；完成后继续原查询。返回 completed/data 或明确停止状态，冷却/403/未知失败不重登。不支持发送、发布、上传、选退课或任何写操作。参数：check() -> 'dict'; summary(include_card_dates: 'bool' = False) -> 'dict'; loans(include_identifiers: 'bool' = False) -> 'dict'; history(include_identifiers: 'bool' = False) -> 'dict'",
+          "input_schema": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "check",
+                  "summary",
+                  "loans",
+                  "history"
+                ],
+                "title": "Operation",
+                "type": "string"
+              },
+              "parameters": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Parameters"
+              },
+              "login_authorized": {
+                "default": false,
+                "title": "Login Authorized",
+                "type": "boolean"
+              },
+              "wait_seconds": {
+                "default": 20,
+                "title": "Wait Seconds",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "title": "read_with_recoveryArguments",
             "type": "object"
           }
         }
@@ -5221,6 +5666,27 @@
               "url"
             ],
             "title": "school_teach_read_articleArguments",
+            "type": "object"
+          }
+        },
+        "school_teach_runtime_status": {
+          "description": "离线检查本服务进程启动时的源码/依赖指纹与当前磁盘。restart_required 表示需要重载；更新后使用 bootstrap verify 给出的 expected_fingerprint 在当前客户端调用本工具，核对 current、expected_matches=true。instance_id 可区分进程；工具不存在说明需先重载旧版。不会重启、联网、读取凭据或证明账号连接。",
+          "input_schema": {
+            "properties": {
+              "expected_fingerprint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Expected Fingerprint"
+              }
+            },
+            "title": "runtime_statusArguments",
             "type": "object"
           }
         }
@@ -5608,6 +6074,27 @@
             "title": "tasksArguments",
             "type": "object"
           }
+        },
+        "school_icourse_runtime_status": {
+          "description": "离线检查本服务进程启动时的源码/依赖指纹与当前磁盘。restart_required 表示需要重载；更新后使用 bootstrap verify 给出的 expected_fingerprint 在当前客户端调用本工具，核对 current、expected_matches=true。instance_id 可区分进程；工具不存在说明需先重载旧版。不会重启、联网、读取凭据或证明账号连接。",
+          "input_schema": {
+            "properties": {
+              "expected_fingerprint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Expected Fingerprint"
+              }
+            },
+            "title": "runtime_statusArguments",
+            "type": "object"
+          }
         }
       }
     },
@@ -5930,6 +6417,71 @@
               }
             },
             "title": "tasksArguments",
+            "type": "object"
+          }
+        },
+        "school_nan7_runtime_status": {
+          "description": "离线检查本服务进程启动时的源码/依赖指纹与当前磁盘。restart_required 表示需要重载；更新后使用 bootstrap verify 给出的 expected_fingerprint 在当前客户端调用本工具，核对 current、expected_matches=true。instance_id 可区分进程；工具不存在说明需先重载旧版。不会重启、联网、读取凭据或证明账号连接。",
+          "input_schema": {
+            "properties": {
+              "expected_fingerprint": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Expected Fingerprint"
+              }
+            },
+            "title": "runtime_statusArguments",
+            "type": "object"
+          }
+        },
+        "school_nan7_query": {
+          "description": "只读业务查询及一次登录恢复。operation 限枚举，parameters 使用对应客户端只读方法参数。已获用户登录授权时设 login_authorized=true；默认仅查询。脚本仅在明确认证失效时重登，沿用已有邮件验证许可，wait_seconds=0–30；完成后继续原查询。返回 completed/data 或明确停止状态，冷却/403/未知失败不重登。不支持发送、发布、上传、选退课或任何写操作。参数：check() -> 'dict[str, Any]'; search(query: 'str' = '', offer_type: 'str' = 'sell', category: 'int | None' = None, page: 'str | None' = None, include_seller: 'bool' = False) -> 'dict[str, Any]'; detail(offer_id: 'str', include_seller: 'bool' = False) -> 'dict[str, Any]'",
+          "input_schema": {
+            "properties": {
+              "operation": {
+                "enum": [
+                  "check",
+                  "search",
+                  "detail"
+                ],
+                "title": "Operation",
+                "type": "string"
+              },
+              "parameters": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Parameters"
+              },
+              "login_authorized": {
+                "default": false,
+                "title": "Login Authorized",
+                "type": "boolean"
+              },
+              "wait_seconds": {
+                "default": 20,
+                "title": "Wait Seconds",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "operation"
+            ],
+            "title": "read_with_recoveryArguments",
             "type": "object"
           }
         }

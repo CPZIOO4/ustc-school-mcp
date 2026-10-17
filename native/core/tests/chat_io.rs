@@ -56,6 +56,9 @@ impl Provider {
                     thread::sleep(Duration::from_millis(5));
                     continue;
                 };
+                // Windows inherits the listener's nonblocking mode. Read the
+                // entire synthetic request before choosing its response.
+                stream.set_nonblocking(false).unwrap();
                 stream
                     .set_read_timeout(Some(Duration::from_secs(4)))
                     .unwrap();

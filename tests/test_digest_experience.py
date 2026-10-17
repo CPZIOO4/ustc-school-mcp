@@ -37,7 +37,7 @@ class ExperienceTests(unittest.TestCase):
         from school_mcp.digest import worker
         state=Store().read();state['settings']['enabled']=True;Store().save(state)
         # Isolate worker-launch policy; its Thread mock must not intercept native storage pipe IO.
-        with patch.object(Store,'read',return_value=state),patch('school_mcp.background_process.spawn',side_effect=PermissionError('denied')),patch('threading.Thread') as thread:
+        with patch.object(Store,'read',return_value=state),patch('school_mcp.digest.native.check_paths'),patch('school_mcp.background_process.spawn',side_effect=PermissionError('denied')),patch('threading.Thread') as thread:
             with self.assertRaises(PermissionError):worker.ensure()
             thread.assert_not_called()
     def test_presets_do_not_enable_or_change_storage(self):

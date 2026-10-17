@@ -56,7 +56,7 @@ def main():
                 original=read_private(Path(tmp)/'instance.dpapi')
                 assert original is not None
                 assert original['core']['implementation']=='rust'
-                assert original['core']['version']=='0.8.0'
+                assert original['core']['version']=='0.9.0'
                 assert original['core']['desktop_backend']=='rust'
                 assert 'finance_preflight' in original['core']['capabilities']
                 assert {'runner_step', 'agent_claim', 'catalog_route', 'recovery_failure'} <= set(original['core']['capabilities'])

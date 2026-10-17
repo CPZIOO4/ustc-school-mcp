@@ -79,7 +79,7 @@ def run(timeout_seconds: int = 240):
                         verification.observe_result(body)
                         if re.search(r"密码错误|用户名或密码不正确|Invalid credentials", body, re.I):
                             raise Nan7Error("学校未接受已保存的统一身份凭据，已停止自动重试。")
-                        if not verification.last_stage and re.search(r"验证码|动态口令|二次验证|Verification code", body, re.I):
+                        if verification.needs_manual(body):
                             login_state("waiting_for_verification", "学校要求身份验证，请在南七集市登录窗口完成。")
                 if is_market_origin(page.url) and time.monotonic() >= next_check:
                     next_check = time.monotonic() + 3

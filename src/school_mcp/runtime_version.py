@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import sys
 from typing import Any
 import uuid
 
@@ -16,9 +17,51 @@ def digest(values: dict) -> str:
     return hashlib.sha256(json.dumps(values, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
+def frozen_snapshot(package: Path) -> dict:
+    """A frozen engine contains bytecode in its executable, not loose Python sources."""
+    bundle = Path(sys._MEIPASS)
+    if package != bundle / 'school_mcp' or package.is_symlink() or bundle.is_symlink():
+        raise ValueError('unverifiable_bundle')
+    executable = Path(sys.executable)
+    if executable.is_symlink() or not executable.is_file():
+        raise ValueError('unverifiable_executable')
+    files = {}
+    # Fixed public resources only; never follow paths supplied by the build manifest.
+    for name, path, limit in [
+        ('engine', executable, 512 * 1024 * 1024),
+        *[(name, package / name, 2 * 1024 * 1024) for name in
+          ('diagnostic-build.json', 'agent/catalog_data.json', 'desktop/chat_resources.json')],
+    ]:
+        if any(parent.is_symlink() for parent in path.parents) or path.is_symlink() or not path.is_file():
+            raise ValueError('unverifiable_bundle')
+        hasher, total = hashlib.sha256(), 0
+        with path.open('rb') as handle:
+            while block := handle.read(1024 * 1024):
+                total += len(block)
+                if total > limit:
+                    raise ValueError('bundle_limit')
+                hasher.update(block)
+        if not total:
+            raise ValueError('incomplete_bundle')
+        files[name] = hasher.hexdigest()
+    versions = {}
+    for name in ('school-mcp', 'mcp', 'httpx', 'beautifulsoup4', 'playwright'):
+        try:
+            versions[name] = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            versions[name] = None
+    source, dependencies = digest(files), digest(versions)
+    return {'source_fingerprint': source, 'dependency_fingerprint': dependencies,
+            'fingerprint': digest({'source': source, 'dependencies': dependencies}),
+            'package_version': versions['school-mcp'], 'manifests': {},
+            'scope': 'calling_process_startup_vs_frozen_bundle'}
+
+
 def snapshot(package: Path) -> dict:
     """Read package source, fixed public catalog and deployment manifests, never private state."""
     try:
+        if getattr(sys, 'frozen', False):
+            return frozen_snapshot(package)
         files = {}
         total = 0
 
@@ -72,7 +115,7 @@ def snapshot(package: Path) -> dict:
                 'fingerprint': digest({'source': source, 'dependencies': dependencies}),
                 'package_version': versions['school-mcp'], 'manifests': manifests,
                 'source_file_count': len(files)}
-    except (OSError, ValueError, RuntimeError):
+    except (OSError, ValueError, RuntimeError, AttributeError):
         return {'fingerprint': None, 'source_fingerprint': None, 'dependency_fingerprint': None}
 
 
@@ -109,8 +152,11 @@ class RuntimeMonitor:
                 'dependencies_changed': (self.startup['dependency_fingerprint'] != current['dependency_fingerprint']) if verified else None,
                 'dependency_sync_required': manifests_changed, 'expected_matches': expected_matches,
                 'actions': actions, 'network_checked': False, 'credentials_read': False,
-                'scope': 'calling_process_startup_vs_disk',
-                'note': '指纹记录进程启动时的项目源码及依赖元数据，不是内存代码转储或远端最新版本检查。current 不证明学校连接有效；独立新进程不能证明当前客户端已重载。'}
+                'scope': self.startup.get('scope', 'calling_process_startup_vs_disk'),
+                'note': ('冻结程序核对启动时与磁盘上的引擎文件、固定公开资源及依赖元数据；不等于源码目录指纹。'
+                         if self.startup.get('scope') == 'calling_process_startup_vs_frozen_bundle' else
+                         '指纹记录进程启动时的项目源码及依赖元数据，不是内存代码转储或远端最新版本检查。') +
+                        'current 不证明学校连接有效；独立新进程不能证明当前客户端已重载。'}
 
 
 # Imported by package __init__ before service modules, not on the first status call.

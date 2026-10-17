@@ -3,8 +3,10 @@ from contextlib import contextmanager
 import json
 import os
 import sqlite3
+from pathlib import Path
 from ..mail.config import local_dir
 from ..mail.credentials import _dpapi
+from . import native
 
 def owner():
     from ..agent.store import identity
@@ -17,11 +19,17 @@ def defaults():
 
 class Store:
     def __init__(self,root=None):
-        self.root=root or local_dir();self.root.mkdir(parents=True,exist_ok=True)
+        # The shared legacy local_dir() resolves links. Preserve the explicit
+        # profile spelling until the native boundary has checked its ancestors.
+        raw=os.environ.get('SCHOOL_MCP_LOCAL_DIR')
+        self.root=root or (Path(raw).expanduser().absolute() if native.enabled() and raw else local_dir())
+        if native.enabled():native.check_paths(self.root)
+        else:self.root.mkdir(parents=True,exist_ok=True)
         self.path=self.root/'digest.sqlite3'
 
     @contextmanager
     def cycle(self):
+        if native.enabled():native.check_paths(self.root)
         path=self.root/'digest-cycle.lock'
         with path.open('a+b') as f:
             f.write(b'0');f.flush();f.seek(0)
@@ -51,6 +59,8 @@ class Store:
         finally:db.close()
 
     def read(self):
+        if native.enabled():
+            return native.call('read', root=native.directory(self.root), owner=owner())
         with self.db() as db:
             row=db.execute('SELECT payload FROM state WHERE id=1').fetchone()
         if not row:
@@ -61,6 +71,9 @@ class Store:
         return result
 
     def save(self,state):
+        if native.enabled():
+            native.call('save', root=native.directory(self.root), owner=owner(), state=state)
+            return
         if state['owner']!=owner():raise ValueError('当前身份已变化，停止保存订阅。')
         raw=json.dumps(state,ensure_ascii=False,allow_nan=False).encode()
         if len(raw)>20*1024*1024:raise ValueError('信息中心记录超过上限，请缩小来源范围。')

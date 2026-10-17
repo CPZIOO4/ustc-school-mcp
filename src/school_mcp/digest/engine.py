@@ -8,16 +8,23 @@ from .store import Store, defaults
 from .sources import catalog, collect
 from .calendar import parse_time, CST
 from ..safety_log import record
+from . import native
+
+def _native_store(action, store, **values):
+    from .store import owner
+    return native.call(action, root=native.directory(store.root), owner=owner(), **values)
 
 def utcnow():return datetime.now(timezone.utc)
 
 def fingerprint(item):
+    if native.enabled():return native.call('fingerprint',item=item)
     stable={k:v for k,v in item.items() if k not in {
         'collected_at','revision','change','matched_by','last_seen','fingerprint','urgent_key','detail_unavailable'}}
     if stable.get('poster_ocr'):stable['poster_ocr']={k:v for k,v in stable['poster_ocr'].items() if k!='errors'}
     return hashlib.sha256(json.dumps(stable,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 
 def settings(value):
+    if native.enabled():return native.call('settings',value=value)
     base=defaults()
     if not isinstance(value,dict) or set(value)-set(base):raise ValueError('订阅设置字段无效。')
     base.update(value)
@@ -48,6 +55,12 @@ def configure(value, authorized=False, store=None):
     store=store or Store();value=settings(value)
     if value['enabled'] and not authorized:
         raise ValueError('开启定时采集与推送前，需要用户确认来源、时间和收件人。')
+    if native.enabled():
+        sender=None
+        if value['enabled'] and value['email_enabled']:
+            from ..mail.config import load_config
+            sender=load_config().address
+        return _native_store('configure',store,settings=value,authorized=authorized,sender=sender)
     with store.cycle():
         state=store.read();old=state['settings']
         if value['enabled'] and value['email_enabled']:
@@ -62,6 +75,7 @@ def configure(value, authorized=False, store=None):
     return {'settings':value,'state':'enabled' if value['enabled'] else 'paused','baseline':'首次成功采集建立基线，不推送全部历史记录。'}
 
 def matches(x, cfg):
+    if native.enabled():return native.call('matches',item=x,settings=cfg)
     hay=' '.join(str(x.get(k) or '') for k in ['title','summary','company','location','major','education']).casefold()
     if any(w.casefold() in hay for w in cfg['exclude']):return []
     if cfg['locations'] and not any(w.casefold() in (x.get('location') or '').casefold() for w in cfg['locations']):return []
@@ -69,6 +83,7 @@ def matches(x, cfg):
     return hit or (['所选来源'] if not cfg['keywords'] else [])
 
 def deduplicate(items):
+    if native.enabled():return native.call('deduplicate',items=list(items))
     result=[];seen={}
     for x in items:
         # Merge exact content/title/date cross-posts, never fuzzy-merge similar activities.
@@ -79,6 +94,7 @@ def deduplicate(items):
     return result
 
 def report_text(events, health):
+    if native.enabled():return native.call('report_text',items=list(events),health=health)
     lines=['校园信息简报（北京时间）','']
     events=deduplicate(events);shown=0
     for x in events:
@@ -126,6 +142,8 @@ def _deliver(state, message, store, sender=None):
 
 def refresh(*, notify=False, store=None, collector=collect, now=None, sender=None):
     store=store or Store();now=now or utcnow()
+    if native.enabled():
+        return _refresh_native(notify=notify,store=store,collector=collector,now=now,sender=sender)
     with store.cycle():
         state=store.read();cfg=state['settings']
         notify=notify and cfg['enabled']
@@ -226,7 +244,62 @@ def refresh(*, notify=False, store=None, collector=collect, now=None, sender=Non
         return {'state':'refreshed','baseline_sources':baseline,'item_count':len(state['items']),
                 'source_health':state['sources'],'messages':len(state['messages']),'notification_created':bool(events)}
 
+def _refresh_native(*,notify,store,collector,now,sender):
+    """Temporary IO orchestration. Rust owns reduction, filtering and app delivery.
+
+    Keep the shared cycle lock across collection and saves; failure classification,
+    collector HTTP/DOM and optional email delivery still use existing adapters.
+    """
+    with store.cycle():
+        state=store.read();cfg=state['settings'];notify=notify and cfg['enabled']
+        if notify and state.get('last_cycle') and now-datetime.fromisoformat(state['last_cycle'])<timedelta(minutes=cfg['interval_minutes']):
+            return {'state':'not_due','last_cycle':state['last_cycle']}
+        if notify:
+            for message in state['messages']:
+                if message.get('delivery',{}).get('status') in {'pending','prepared','sending'}:
+                    # Switching to app-only must not rewrite an older SMTP
+                    # attempt as successfully delivered inside the app.
+                    if not cfg['email_enabled'] and (message['delivery'].get('draft_id') or message['delivery']['status'] in {'prepared','sending'}):
+                        continue
+                    try:_deliver(state,message,store,sender)
+                    except Exception as exc:
+                        message['delivery'].update(status='unknown',**record(service='digest',stage='background',exc=exc,outcome='unknown'))
+        baseline=[]
+        for source in cfg['sources']:
+            previous=state['sources'].get(source,{})
+            if previous.get('retry_at') and now<datetime.fromisoformat(previous['retry_at']):continue
+            try:
+                response=collector(source,cfg)
+                result=native.call('apply_source',state=state,source=source,response=response,now=now.isoformat())
+                state=result['state']
+                if result['baseline']:baseline.append(source)
+            except Exception as exc:
+                failures=previous.get('failures',0)+1
+                incident=record(service='digest',stage='background',exc=exc,outcome='read_failed')
+                from ..recovery import classify
+                error_code,_=classify(exc)
+                state['sources'][source]={**previous,'state':'failed','failures':failures,'error_id':incident['error_id'],
+                    'error_code':error_code,'next_action':'在账号页检查该平台登录' if error_code in {'authentication_required','identity_required','manual_verification_required'} else '检查来源状态，等待冷却后重试',
+                    'retry_at':(now+timedelta(minutes=min(1440,cfg['interval_minutes']*2**min(failures-1,5)))).isoformat()}
+                if cfg['enabled'] and previous.get('state')!='failed':
+                    state['pending']['error:'+source]=dict(id='error:'+source,title=source+' 暂时读取失败',source=source,
+                        source_url='',summary='本次未检查成功，不能据此判断没有新消息。错误编号：'+incident['error_id'],change='source_failed')
+        result=native.call('finish_cycle',state=state,now=now.isoformat(),notify=notify)
+        state=result['state'];message_id=result['message_id']
+        # App-only delivery is already final in the Rust result. Freeze the exact
+        # report before any optional SMTP adapter and preserve unknown attempts.
+        store.save(state)
+        if message_id and cfg['email_enabled']:
+            message=next(x for x in state['messages'] if x['id']==message_id)
+            try:_deliver(state,message,store,sender)
+            except Exception as exc:
+                message['delivery'].update(status='unknown',**record(service='digest',stage='background',exc=exc,outcome='unknown'))
+            store.save(state)
+        return {'state':'refreshed','baseline_sources':baseline,'item_count':len(state['items']),
+                'source_health':state['sources'],'messages':len(state['messages']),'notification_created':bool(message_id)}
+
 def overview(store=None,limit=100):
+    if native.enabled():return _native_store('overview',store or Store(),limit=limit)
     state=(store or Store()).read();cfg=state['settings']
     items=[dict(x,matched_by=matches(x,cfg)) for x in state['items'].values() if x['source'] in cfg['sources']]
     items=[x for x in items if x['matched_by']]
@@ -240,6 +313,7 @@ def overview(store=None,limit=100):
 
 def mark_read(message_id,store=None):
     store=store or Store()
+    if native.enabled():return _native_store('mark_read',store,message_id=message_id)
     with store.cycle():
         state=store.read();match=next((x for x in state['messages'] if x['id']==message_id),None)
         if not match:raise ValueError('简报不存在。')
@@ -249,6 +323,7 @@ def mark_read(message_id,store=None):
 def preview_report(store=None):
     """User-requested app inbox sample; does not send mail or consume daily changes."""
     store=store or Store()
+    if native.enabled():return _native_store('preview_report',store)
     with store.cycle():
         state=store.read();view=overview(store)
         text='【试阅简报】当前采集快照，不表示这些消息刚刚发布。\n\n'+report_text(view['items'],state['sources'])

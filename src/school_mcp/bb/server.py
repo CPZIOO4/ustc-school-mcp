@@ -21,6 +21,27 @@ READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, idempotent
 
 
 @mcp.tool(annotations=READ_ONLY)
+def school_bb_identity_status() -> dict[str, Any]:
+    """查看共享统一身份登录流程进度、邮箱回退授权与本地保存状态；不联网，不返回密码、验证码或 Cookie。历史 connected 需 check_connection 核验。"""
+    from .identity_login import auth_status
+    return auth_status()
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False, openWorldHint=True))
+def school_bb_identity_reconnect() -> dict[str, Any]:
+    """已获用户登录授权后启动固定统一认证流程：后台 Chrome 恢复信任状态，必要时使用本机凭据、核对密保邮箱、只请求一次新邮件验证码；加密保存后用独立会话核验复用。仅认证成功不等于 BB/教务等已连接，随后检查目标网站。与其他登录互斥，不接受密码、OTP、网址或脚本参数。"""
+    from .identity_login import start
+    return start()
+
+
+@mcp.tool(annotations=READ_ONLY)
+async def school_bb_identity_check_connection() -> dict[str, Any]:
+    """后台使用加密保存的统一身份状态打开官方个人中心，核验能否复用；不输入密码、不发送或读取验证码、不重写会话。失败不清除旧状态。"""
+    from .identity_login import check_connection
+    return await asyncio.to_thread(check_connection)
+
+
+@mcp.tool(annotations=READ_ONLY)
 def school_bb_auth_status() -> dict[str, Any]:
     """查看本地统一身份凭据、设备状态是否已保存，以及登录进度；不返回密码或 Cookie 值。"""
     return auth_status()

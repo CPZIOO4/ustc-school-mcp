@@ -132,7 +132,7 @@ def session_only_step(page, credentials, verification, notify):
     verification.observe_result(body)
     if not verification.last_stage and page.locator('input[type="password"]:visible').count():
         notify('waiting_for_verification', '统一身份会话需要本人重新登录，请在应用中打开学校官方登录窗口。')
-    elif not verification.last_stage and re.search(r'验证码|动态口令|二次验证|Verification code', body, re.I):
+    elif verification.needs_manual(body):
         notify('waiting_for_verification', '学校需要本人完成身份验证。')
 
 
@@ -202,7 +202,7 @@ def run(timeout_seconds: int = 240, force_identity_login: bool = False) -> None:
                         email_verification.step(page)
                     text = page.locator("body").inner_text(timeout=3000)
                     email_verification.observe_result(text)
-                    if submitted and not email_verification.last_stage and re.search(r"短信.*验证|请输入.*验证码|动态口令|二次验证|Verification code", text, re.I):
+                    if submitted and email_verification.needs_manual(text):
                         login_state("waiting_for_verification", "学校要求身份验证，请在登录窗口输入验证码，并勾选信任此设备。完成后会保存设备 Cookie。", device_state_restored=device is not None)
                     if submitted and re.search(r"密码错误|用户名或密码不正确|Invalid credentials", text, re.I):
                         raise BBError("学校未接受已保存的统一身份凭据，已停止自动重试。")

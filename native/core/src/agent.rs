@@ -311,7 +311,7 @@ fn python_float(number: &serde_json::Number) -> String {
         }
     }
 }
-fn canonical(value: &Value) -> String {
+pub(crate) fn canonical(value: &Value) -> String {
     match value {
         Value::Object(map) => {
             let mut keys: Vec<_> = map.keys().collect();

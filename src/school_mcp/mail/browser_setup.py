@@ -277,7 +277,7 @@ def automate_page(page, *, expected_address: str, timeout: int, label: str, noti
 
 
 def run(*, headed: bool = False, create_client_password: bool = False, resume: bool = False,
-        address: str = '', replace_existing: bool = False, timeout: int = 600, notify=None) -> dict:
+        address: str = '', replace_existing: bool = False, timeout: int = 600, notify=None, stopped=None) -> dict:
     notify = notify or (lambda _: None)
     if os.environ.get('SCHOOL_MAIL_PASSWORD'):
         raise MailError('当前进程设置了 SCHOOL_MAIL_PASSWORD，会覆盖已保存凭据。请先在本机清除该环境变量，再进行浏览器绑定。')
@@ -285,6 +285,12 @@ def run(*, headed: bool = False, create_client_password: bool = False, resume: b
         raise MailError('登录等待时间必须在 30 到 900 秒之间。')
     if address:
         MailConfig(address)
+    from ..desktop import native_core
+    if native_core.enabled():
+        from .native import bind
+        return bind(headed=headed, create_client_password=create_client_password,
+                    resume=resume, address=address, replace_existing=replace_existing,
+                    timeout=timeout, notify=notify, stopped=stopped)
     with bind_lock():
         data = _load()
         if data['state'] == 'captured':

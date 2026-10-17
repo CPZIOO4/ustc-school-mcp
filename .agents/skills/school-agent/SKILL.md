@@ -5,6 +5,8 @@ description: 通过本项目学校智能体协调入口办理学校事务：识�
 
 # 学校智能体
 
+统一身份登录、设备信任或邮箱二次验证选择 `identity` 流程，按 [固定登录流程](../school-services/references/identity-login.md) 执行。该流程只建立共享认证状态；随后回到目标网站检查连接并完成原查询。
+
 校园简报、订阅、就业实习、学院通知讲座和日历导出选择 `digest` 流程，按 [信息中心](../school-services/references/campus-digest.md) 执行。定时采集由后台脚本完成；模型不自行循环等待。
 
 学工优秀学生奖学金申请选择 `student`，按 [奖学金流程](../school-services/references/campus-portal-student.md) 执行。先查当年项目和已有记录，离线补齐并冻结预览，再按已有授权调用固定申请工具。打开学校表单会创建草稿，不能当只读预览；最终以官方“个人已提交”核验。

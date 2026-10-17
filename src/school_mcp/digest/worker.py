@@ -5,10 +5,12 @@ from pathlib import Path
 import sys
 import time
 from .store import Store
+from . import native
 from ..safety_log import record
 
 @contextmanager
 def worker_lock(store):
+    if native.enabled():native.check_paths(store.root)
     with (store.root/'digest-worker.lock').open('a+b') as f:
         f.write(b'0');f.flush();f.seek(0)
         try:
@@ -37,10 +39,11 @@ def ensure(*, allow_in_process=False):
     from ..background_process import spawn
     executable=Path(sys.executable)
     if not getattr(sys,'frozen',False) and os.name=='nt':executable=executable.with_name('pythonw.exe')
-    env=os.environ.copy();env['SCHOOL_MCP_LOCAL_DIR']=str(store.root.resolve());env['SCHOOL_MCP_BROWSER_HEADED']='0'
+    profile=native.directory(store.root) if native.enabled() else str(store.root.resolve())
+    env=os.environ.copy();env['SCHOOL_MCP_LOCAL_DIR']=profile;env['SCHOOL_MCP_BROWSER_HEADED']='0'
     mode='independent_process'
     try:
-        p=spawn([str(executable),'-m','school_mcp','digest-worker','--private-dir',str(store.root.resolve())],
+        p=spawn([str(executable),'-m','school_mcp','digest-worker','--private-dir',profile],
                 cwd=str(Path(__file__).resolve().parents[3]),env=env)
     except PermissionError:
         if not allow_in_process:raise
@@ -48,7 +51,7 @@ def ensure(*, allow_in_process=False):
         # server may host this worker; a short CLI/MCP caller must fail visibly.
         import threading
         p=None;mode='application_process'
-        threading.Thread(target=run,args=(str(store.root.resolve()),),daemon=True,
+        threading.Thread(target=run,args=(profile,),daemon=True,
                          name='campus-digest').start()
     for _ in range(30):
         if running(store):return {'running':True,'enabled':True,'mode':mode}
@@ -57,7 +60,7 @@ def ensure(*, allow_in_process=False):
     return {'running':False,'enabled':True,'state':'start_unverified','note':'后台进程尚未确认启动；查看状态，不假定已在监控。'}
 
 def run(private_dir):
-    os.environ['SCHOOL_MCP_LOCAL_DIR']=str(Path(private_dir).resolve())
+    os.environ['SCHOOL_MCP_LOCAL_DIR']=native.directory(Path(private_dir)) if native.enabled() else str(Path(private_dir).resolve())
     os.environ['SCHOOL_MCP_BROWSER_HEADED']='0'
     from .engine import refresh
     store=Store()

@@ -116,8 +116,27 @@ class MailBehaviorTests(unittest.TestCase):
         self.assertFalse(any(call[0] == "FETCH" for call in self.fake.calls))
         search = next(call for call in self.fake.calls if call[0] == "SEARCH")
         self.assertEqual(search[1:3], ("UID", "43:*"))
-        self.assertIn("FROM", search)
-        self.assertIn("TO", search)
+        self.assertEqual(search, ('SEARCH', 'UID', '43:*'))
+
+    def test_code_snapshot_without_uidnext_fetches_only_highest_uid(self):
+        self.fake.response = lambda key: (key, [None] if key == 'UIDNEXT' else [b'123'])
+        original = self.fake.uid
+        def uid(command, *args):
+            if (command, *args) == ('FETCH', '*', '(UID)'):
+                self.fake.calls.append((command, *args))
+                return 'OK', [b'2 (UID 97)']
+            return original(command, *args)
+        self.fake.uid = uid
+        self.assertEqual(self.client.verification_snapshot(), {'uid_validity': 123, 'watermark_uid': 97})
+        self.assertEqual([c for c in self.fake.calls if c[0] == 'FETCH'], [('FETCH', '*', '(UID)')])
+
+    def test_code_snapshot_without_uidnext_empty_or_invalid_fails_closed(self):
+        self.fake.response = lambda key: (key, [None] if key == 'UIDNEXT' else [b'123'])
+        with patch.object(self.client, 'select', return_value=(123, 0)):
+            self.assertEqual(self.client.verification_snapshot(), {'uid_validity': 123, 'watermark_uid': 0})
+        self.fake.uid = lambda *_: ('OK', [b'no UID metadata'])
+        with self.assertRaises(MailError):
+            self.client.verification_snapshot()
 
     def test_code_uid_change_stops_before_search_or_fetch(self):
         with self.assertRaises(MailError):

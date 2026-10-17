@@ -10,16 +10,20 @@ pub mod cdp;
 pub mod chat_io;
 pub mod context;
 pub mod desktop;
+pub mod digest;
 pub mod finance;
 pub mod jw;
 pub mod legacy;
 pub mod login;
 pub mod login_jobs;
+pub mod mail;
+pub mod mail_jobs;
 pub mod model;
 pub mod network;
 pub mod public_sites;
 pub mod recovery;
 pub mod runner;
+pub mod safety_log;
 pub mod sessions;
 pub mod storage;
 pub mod strict_json;
@@ -53,6 +57,7 @@ pub struct Core {
     authenticated: auth_http::Client,
     browser: browser::Manager,
     login: login_jobs::Manager,
+    mail: mail_jobs::Manager,
 }
 impl Core {
     pub fn new() -> Result<Self> {
@@ -62,6 +67,7 @@ impl Core {
             authenticated: auth_http::Client::new()?,
             browser: browser::Manager::new(),
             login: login_jobs::Manager::default(),
+            mail: mail_jobs::Manager::default(),
         })
     }
     pub async fn dispatch(&self, request: Value) -> Result<Value> {
@@ -83,7 +89,18 @@ impl Core {
                     "young_parse", "young_policy", "young_job", "sessions_filter", "sessions_merge",
                     "sessions_read", "sessions_write", "sessions_device_save", "sessions_identity_save", "sessions_validate",
                     "browser_start", "browser_stop", "browser_status", "app_io", "bb_io", "young_io", "native_page_driver",
-                    "login_begin", "login_status", "login_cancel", "chat_io", "desktop_backend"]})),
+                    "login_begin", "login_status", "login_cancel", "chat_io", "desktop_backend",
+                    "digest", "mail_parse", "mail_bind_begin", "mail_bind_status", "mail_bind_cancel",
+                    "safety_log_record", "safety_log_report", "safety_log_summary", "safety_log_clear", "safety_log_export", "safety_log_clean"]})),
+            "digest" => digest::dispatch(input),
+            "mail_parse" => mail::parse(input),
+            "mail_bind_begin" | "mail_bind_status" | "mail_bind_cancel" => {
+                self.mail.dispatch(operation, input)
+            }
+            "safety_log_record" | "safety_log_report" | "safety_log_summary"
+            | "safety_log_clear" | "safety_log_export" | "safety_log_clean" => {
+                safety_log::dispatch(operation, input)
+            }
             "login_begin" | "login_status" | "login_cancel" => {
                 self.login.dispatch(operation, input)
             }

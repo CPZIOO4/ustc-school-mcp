@@ -380,38 +380,11 @@ impl Turn<'_> {
         value
     }
     fn diagnostic(&self, problem: Value, stage: &str, tool: Option<&str>, outcome: &str) -> Value {
-        let mut input = json!({"problem":problem,"stage":stage,"service":if stage=="model" {"model"} else {"app"},"outcome":outcome});
+        let mut input = json!({"stage":stage,"service":if stage=="model" {"model"} else {"app"},"outcome":outcome});
         if let Some(tool) = tool {
             input["tool"] = json!(tool);
         }
-        match self
-            .legacy
-            .call("diagnostic", input, self.stopped, self.notify)
-        {
-            Ok(value) if value.is_object() => {
-                // Diagnostics enrich only fixed metadata, never alter the failure
-                // classification or authorization/receipt semantics.
-                let mut output = problem;
-                for key in ["error_id", "diagnostic_saved", "diagnostic_note"] {
-                    if let Some(value) = value.get(key) {
-                        output[key] = value.clone();
-                    }
-                }
-                output
-            }
-            _ => {
-                let mut output = problem;
-                output["error_id"] = json!(format!(
-                    "ERR-{}",
-                    &uuid::Uuid::new_v4().simple().to_string()[..16].to_ascii_uppercase()
-                ));
-                output["diagnostic_saved"] = json!(false);
-                output["diagnostic_note"] = json!(
-                    "诊断日志无法写入，请检查磁盘空间和目录权限；本次错误编号仅供当前界面使用。"
-                );
-                output
-            }
-        }
+        crate::safety_log::attach(&self.root.join("diagnostics"), problem, &input)
     }
     fn record_failure(&mut self, problem: Value) -> Result<()> {
         self.chat["state"] = json!("interrupted");

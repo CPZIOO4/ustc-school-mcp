@@ -198,6 +198,18 @@ impl App {
                 self.notify(stage, detail)
             })
     }
+    fn digest(&self, action: &str, mut input: Value) -> Result<Value> {
+        // Identity and storage scope come from the host, never from page/model input.
+        let identity = self.identity_record()?;
+        let username = identity["username"].as_str().ok_or_else(Error::invalid)?;
+        input["action"] = json!(action);
+        input["root"] = json!(self.profile());
+        input["owner"] = json!(format!(
+            "{:x}",
+            Sha256::digest(json!(username).to_string().as_bytes())
+        ));
+        crate::digest::dispatch(&input)
+    }
     fn notify(&self, stage: &str, detail: &str) {
         if let Ok(mut state) = self.state.lock() {
             state.operation["stage"] = json!(stage);
@@ -208,16 +220,10 @@ impl App {
         }
     }
     fn incident(&self, code: &str, stage: &str) -> Value {
-        self.legacy
-            .call(
-                "diagnostics_record",
-                json!({"code":code,"stage":stage,"outcome":"unknown"}),
-                &AtomicBool::new(false),
-                &|_, _| {},
-            )
-            .unwrap_or_else(
-                |_| json!({"diagnostic_saved":false,"diagnostic_note":"诊断日志暂不可写。"}),
-            )
+        crate::safety_log::record(
+            &self.root.join("diagnostics"),
+            &json!({"code":code,"stage":stage,"outcome":"unknown"}),
+        )
     }
     fn start(
         self: &Arc<Self>,
@@ -772,7 +778,7 @@ impl App {
             ] {
                 remove_owned(&self.root.join(name))?;
             }
-            self.legacy("diagnostics_clear", json!({}))?;
+            crate::safety_log::clear(&self.root.join("diagnostics"))?;
         }
         let mut state = self.state.lock().map_err(|_| storage_error())?;
         state.connections.clear();
@@ -839,7 +845,7 @@ impl App {
                 if value["confirmation"] != "diagnostics" {
                     return Err(invalid("请确认仅清理诊断日志。"));
                 }
-                self.legacy("diagnostics_clear", json!({}))
+                crate::safety_log::clear(&self.root.join("diagnostics"))
             }
             "/api/diagnostics/ui-error" => Ok(self.incident("ui_error", "ui")),
             _ => {
@@ -859,7 +865,11 @@ impl App {
                     "/api/model/school-connect" => ("school_model_import", true),
                     _ => return Err(invalid("未知操作。")),
                 };
-                if background {
+                if action == "digest_preview_report" {
+                    self.start(action, move |app| app.digest("preview_report", value))
+                } else if action == "digest_read" {
+                    self.digest("mark_read", value)
+                } else if background {
                     self.start(action, move |app| app.legacy(action, value))
                 } else {
                     if action != "digest_read" {
@@ -873,8 +883,8 @@ impl App {
     fn get(&self, path: &str, query: &BTreeMap<String, String>) -> Result<Response> {
         let value = match path {
             "/api/status" => self.status()?,
-            "/api/diagnostics" => self.legacy("diagnostics_report", json!({}))?,
-            "/api/diagnostics/export" => self.legacy("diagnostics_export", json!({}))?,
+            "/api/diagnostics" => crate::safety_log::report(&self.root.join("diagnostics")),
+            "/api/diagnostics/export" => crate::safety_log::export(&self.root.join("diagnostics"))?,
             "/api/campus/sites" => self.legacy("campus_sites", json!({}))?,
             _ => {
                 self.require_login()?;
@@ -899,7 +909,12 @@ impl App {
                     }
                     "/api/campus/profile" => self.legacy("campus_profile", json!({}))?,
                     "/api/campus/timetable" => self.legacy("campus_timetable", json!({}))?,
-                    "/api/digest" => self.legacy("digest_overview", json!({}))?,
+                    "/api/digest" => {
+                        let mut digest = self.digest("overview", json!({}))?;
+                        digest["worker_running"] =
+                            self.legacy("background_status", json!({}))?["digest_running"].clone();
+                        digest
+                    }
                     "/api/artifact" => return self.artifact(query),
                     _ => return Ok(Response::json(404, json!({"error":"入口不存在。"}))),
                 }
@@ -1655,6 +1670,40 @@ mod tests {
             }
             let _ = fs::remove_dir_all(&self.root);
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn digest_direct_routes_keep_host_identity_and_inbox_receipts() {
+        // FakeLegacy rejects digest actions: these reads/writes must be native.
+        let fixture = Fixture::new();
+        let app = &fixture.app;
+        assert!(app.get("/api/digest", &BTreeMap::new()).is_err());
+        fixture.login();
+        let view = app.get("/api/digest", &BTreeMap::new()).unwrap();
+        let view: Value = serde_json::from_slice(&view.body).unwrap();
+        assert_eq!(view["settings"]["email_enabled"], false);
+        assert_eq!(view["worker_running"], false);
+        let preview = app
+            .digest(
+                "preview_report",
+                json!({"root":"ignored","owner":"foreign"}),
+            )
+            .unwrap();
+        assert_eq!(preview["delivery"]["status"], "app_only");
+        let result = app
+            .api(
+                "/api/digest/read",
+                json!({"message_id":preview["message_id"],"root":"ignored","owner":"foreign"}),
+            )
+            .unwrap();
+        assert_eq!(result["read"], true);
+        let same = app.digest("preview_report", json!({})).unwrap();
+        assert_eq!(same["message_id"], preview["message_id"]);
+        let stored = app.digest("read", json!({})).unwrap();
+        assert_eq!(stored["messages"][0]["read"], true);
+        assert_ne!(stored["owner"], "foreign");
+        assert!(fixture.root.join("profile/digest.sqlite3").is_file());
     }
 
     #[cfg(windows)]

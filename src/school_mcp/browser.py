@@ -79,7 +79,8 @@ def background_progress(stage: str, detail: str) -> tuple[str, dict]:
             pass
     metadata = {"browser_channel": "chrome", "headless": is_headless()}
     if stage == "waiting_for_verification" and is_headless():
-        detail = "需要人工身份验证，后台登录已停止，未打开窗口。请明确选择人工登录后使用 --headed 模式。"
+        # Callers supply fixed, secret-free reasons. Keep the actionable reason.
+        detail += " 后台登录已停止，未打开窗口；可明确选择 --headed 模式完成人工验证。"
         metadata["requires_user_action"] = True
     return detail, metadata
 

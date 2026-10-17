@@ -118,25 +118,42 @@ class MailClient:
             return {"folders": [{**item, 'is_archive': is_archive(item['name'], items)} for item in items]}
 
     def verification_snapshot(self) -> dict:
-        """Capture the next UID without fetching any existing message headers."""
+        """Capture a pre-send boundary; some Coremail servers omit UIDNEXT."""
         with self.session() as connection:
-            validity, _ = self.select(connection, "INBOX")
+            validity, count = self.select(connection, "INBOX")
             _, data = connection.response("UIDNEXT")
             try:
                 next_uid = int(data[0])
                 if next_uid < 1:
                     raise ValueError
             except (TypeError, ValueError, IndexError):
-                raise MailError("服务器未提供验证码请求所需的 UIDNEXT，请人工完成验证。") from None
+                # UID FETCH * asks only for the highest existing UID, never its body.
+                # An empty mailbox has no existing UID; future messages must exceed 0.
+                watermark = 0
+                if count:
+                    fetched = _ok(*connection.uid("FETCH", "*", "(UID)"), "确定验证码请求前的邮件编号")
+                    values = []
+                    for item in fetched:
+                        metadata = item[0] if isinstance(item, tuple) else item
+                        if isinstance(metadata, bytes):
+                            values.extend(int(value) for value in re.findall(rb"\bUID (\d+)\b", metadata))
+                    if len(values) != 1 or values[0] < 1:
+                        raise MailError("无法确定验证码请求前的邮件编号，请人工完成验证。")
+                    watermark = values[0]
+                return {"uid_validity": validity, "watermark_uid": watermark}
             return {"uid_validity": validity, "next_uid": next_uid}
 
     def verification_headers(self, first_uid: int, uid_validity: int, limit: int = 20) -> dict:
-        """Bounded headers of only new school-sender messages to this mailbox."""
+        """Bounded new headers; the caller validates sender, destination and purpose.
+
+        Coremail's compound FROM/TO search can lag delivery. UID-only search avoids
+        that index; only this pre-send range is read, using BODY.PEEK throughout.
+        """
         if type(first_uid) is not int or first_uid < 1 or type(limit) is not int or not 1 <= limit <= 20:
             raise MailError("验证码邮件查询边界无效。")
         with self.session() as connection:
             validity, _ = self.select(connection, "INBOX", expected=uid_validity)
-            data = _ok(*connection.uid("SEARCH", "UID", f"{first_uid}:*", "OR", "FROM", '"@ustc.edu.cn"', "FROM", '"@mail.ustc.edu.cn"', "TO", quote(self.config.address)), "查询本次认证邮件")
+            data = _ok(*connection.uid("SEARCH", "UID", f"{first_uid}:*"), "查询本次认证邮件")
             try:
                 # IMAP n:* can include the last old message if n exceeds the current maximum.
                 identifiers = sorted({int(value) for value in (data[0] or b"").split() if int(value) >= first_uid}, reverse=True)

@@ -11,16 +11,21 @@ from ..mail.client import MailClient
 from ..mail.config import MailError, load_config
 from .identity import IDENTITY_HOSTS
 
-EMAIL_OPTION = re.compile(r"^(?:可信邮箱|信任邮箱|安全邮箱)(?:验证|认证)?$|^(?:邮箱验证|邮箱认证|邮箱验证码|邮件验证|Trusted email|Email verification|Email authentication)$", re.I)
-EMAIL_MODE = re.compile(r"可信邮箱|信任邮箱|安全邮箱|邮箱验证|邮箱认证|邮箱验证码|邮件验证|Trusted email|Email verification|Email authentication", re.I)
+EMAIL_OPTION = re.compile(r"^(?:可信邮箱|信任邮箱|安全邮箱|密保邮箱)(?:验证|认证)?$|^(?:邮箱验证|邮箱认证|邮箱验证码|邮件验证码|邮件验证|Trusted email|Email verification|Email authentication)$", re.I)
+EMAIL_MODE = re.compile(r"可信邮箱|信任邮箱|安全邮箱|密保邮箱|邮箱验证|邮箱认证|邮箱验证码|邮件验证码|邮件验证|Trusted email|Email verification|Email authentication", re.I)
 SEND_CODE = re.compile(r"^(获取验证码|发送验证码|获取邮箱验证码|发送邮箱验证码|Send(?: verification)? code|Get(?: verification)? code)$", re.I)
 SUBMIT_CODE = re.compile(r"^(验证|确认|确定|立即验证|立即登录|登录|Verify|Confirm|Sign In|Log In)$", re.I)
 ADDRESS = re.compile(r"[A-Za-z0-9_.+*•…-]+@[A-Za-z0-9.*•…-]+\.[A-Za-z*•…]{2,}")
+CAS_ADDRESS = re.compile(r"已绑定密保邮箱\s*[:：]\s*([A-Za-z0-9_.+-]{3}\*+[A-Za-z0-9.]{4})(?![A-Za-z0-9.*])")
 CODE_CONTEXT = r"验证码|校验码|动态口令|动态密码|verification\s+code|one[- ]time\s+(?:password|code)"
 CODE = re.compile(rf"(?:{CODE_CONTEXT})[\s:：,，为是\[\]【】()（）-]{{0,30}}([0-9]{{4,8}})(?![0-9])", re.I)
 
 
 def matches_address(address: str, displayed: str) -> bool:
+    from ..desktop import native_core
+    if native_core.enabled():
+        from ..mail.native import parse
+        return parse('matches_address', address=address, displayed=displayed)['matches']
     name, separator, domain = displayed.strip().partition("@")
     # A wholly masked account or domain does not identify the authorized mailbox.
     if not separator or domain.lower() != address.partition("@")[2].lower() or not re.search(r"[A-Za-z0-9]", name):
@@ -31,10 +36,24 @@ def matches_address(address: str, displayed: str) -> bool:
 
 def confirms_target(address: str, targets: list[str]) -> bool:
     # Multiple different destinations are ambiguous even if one happens to match.
-    return bool(targets) and all(matches_address(address, target) for target in targets)
+    return bool(targets) and all(matches_address(address, target) or matches_cas_mask(address, target) for target in targets)
+
+
+def matches_cas_mask(address: str, displayed: str) -> bool:
+    """CAS masks the WHOLE address, preserving exactly three and four characters.
+
+    Unlike ordinary local-part masks, its star count must match exactly. This
+    exception is used only for a labelled CAS challenge on the allowed origin.
+    """
+    return (8 <= len(address) <= 254 and address.isascii() and address.count('@') == 1
+            and displayed.casefold() == (address[:3] + '*' * (len(address) - 7) + address[-4:]).casefold())
 
 
 def eligible_header(message: dict, address: str) -> bool:
+    from ..desktop import native_core
+    if native_core.enabled():
+        from ..mail.native import parse, envelope
+        return parse('eligible_header', **envelope(message, address))['eligible']
     senders = getaddresses([message.get("from", "")])
     recipients = getaddresses([message.get("to", ""), message.get("cc", "")])
     return (
@@ -45,6 +64,10 @@ def eligible_header(message: dict, address: str) -> bool:
 
 
 def extract_code(message: dict, address: str) -> str | None:
+    from ..desktop import native_core
+    if native_core.enabled():
+        from ..mail.native import parse, envelope
+        return parse('extract_code', **envelope(message, address))['code']
     if message.get("body_truncated") or not eligible_header(message, address):
         return None
     subject = message.get("subject", "")
@@ -65,7 +88,7 @@ class MailCodeRequest:
         self.client = client
         snapshot = client.verification_snapshot()
         self.validity = snapshot["uid_validity"]
-        self.watermark = snapshot["next_uid"] - 1
+        self.watermark = snapshot["watermark_uid"] if "watermark_uid" in snapshot else snapshot["next_uid"] - 1
         self.examined: set[int] = set()
 
     def poll(self) -> str | None:
@@ -116,6 +139,20 @@ class EmailVerification:
         self.last_stage = None
         self.address: str | None = None
         self.expected_address = expected_address
+        self.challenge_seen_at: float | None = None
+
+    def needs_manual(self, text: str) -> bool:
+        """Allow asynchronous MFA tabs to render before declaring them unsupported."""
+        if self.last_stage:
+            return False
+        if not re.search(r"验证码|动态口令|二次(?:身份)?验证|Verification code", text, re.I):
+            self.challenge_seen_at = None
+            return False
+        if not self.enabled:
+            return True
+        if self.challenge_seen_at is None:
+            self.challenge_seen_at = time.monotonic()
+        return time.monotonic() - self.challenge_seen_at >= 15
 
     def report(self, stage, detail):
         if self.last_stage != stage:
@@ -151,7 +188,9 @@ class EmailVerification:
                 self.stop("认证页面已回到密码输入，请人工完成验证。")
             return
         text = dialog.inner_text(timeout=3000) if dialog else page.locator("body").inner_text(timeout=3000)
-        if re.search(r"重置密码|找回密码|绑定邮箱|更换邮箱|Reset password|Bind email", text, re.I):
+        # A help link such as “如何绑定邮箱” is not an active account-settings form.
+        settings_text = re.sub(r"如何(?:绑定|更换)邮箱", "", text)
+        if re.search(r"重置密码|找回密码|绑定邮箱|更换邮箱|Reset password|Bind email", settings_text, re.I):
             if self.requested:
                 self.stop("页面已切换为账号设置，请人工完成验证。")
             return
@@ -167,7 +206,7 @@ class EmailVerification:
             if not self.expected_address or config.address != self.expected_address:
                 self.stop("邮件验证未绑定当前邮箱；请在本机明确启用后重试。")
                 return
-            addresses = ADDRESS.findall(text)
+            addresses = ADDRESS.findall(text) + CAS_ADDRESS.findall(text)
             email_field = unique_visible(surface.locator('input[type="email"]:visible, input[name="email"]:visible, input[name="mbemail"]:visible'))
             if email_field and email_field.input_value().strip():
                 addresses = [email_field.input_value().strip()]
