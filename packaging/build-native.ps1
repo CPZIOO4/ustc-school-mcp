@@ -18,7 +18,7 @@ try {
         # Import compiler environment only. File operations remain in PowerShell.
         $setup = (Resolve-Path -LiteralPath $MsvcSetup).Path
         if ($setup.Contains('"')) { throw 'Invalid compiler setup path.' }
-        $compilerEnv = & cmd /d /s /c "`"`"$setup`" >nul && set`""
+        $compilerEnv = & cmd /d /c "call `"$setup`" >nul && set"
         if ($LASTEXITCODE -ne 0) { throw 'Could not load compiler environment.' }
         foreach ($line in $compilerEnv) {
             if ($line -match '^([^=]+)=(.*)$') { [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process') }

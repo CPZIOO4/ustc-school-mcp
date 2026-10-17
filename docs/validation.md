@@ -585,3 +585,12 @@ BB 旧会话失效，恢复过程中确认一条旧登录 PID 已被系统进程
 - 源码安装的 17 个 stdio 服务与无头 Chrome 使用隔离私人目录自检通过。冻结 Python 兼容引擎已从白名单重新构建并运行，不能单独视为完整桌面安装包。
 - Windows 原生宿主构建仍因缺少 MSVC `link.exe` 失败。本机此前安装构建工具被自动审批阻止；本轮没有绕过该限制。**新版 Tauri/WebView2 集成验收和完整 Windows 原生 ZIP 尚未完成**，源码 ZIP 与原生安装包必须分开标注，不能混入旧版 EXE。
 - 发布候选与待推送历史使用启发式隐私检查；历史扫描覆盖远端当前版本之后的 4 个提交、458 个唯一公开文件版本，无发现。38 项私人路径忽略样本全部通过。个人脚本、登录态、邮箱、密钥、日志、开发工具链不纳入源码归档或 Git 提交；这不等于完整安全审计。
+
+## 2026-10-17：补齐 MSVC 后的 0.9 Windows 原生包验收
+
+- 用户明确要求代为安装后，通过 WinGet 的 Microsoft 官方 Build Tools 2022 安装源安装 C++ 构建工作负载、MSVC 和 Windows SDK。安装成功，`vswhere` 确认完整可用且不需要重启；此前缺少 `link.exe` 的阻塞已解除。
+- 修复 `packaging/build-native.ps1` 导入编译环境时带空格路径的引号问题。实际通过 `vcvars64.bat` 加载 x64 环境，使用 MSVC Rust 工具链执行 release 构建；原生宿主和 0.9.0 业务核心均成功。复用本日已经从白名单重建并验收的兼容引擎，在全新暂存目录组装。
+- 完整发布包通过 `tests/smoke_native.py` 的真实隐藏 Tauri/WebView2 验收：Rust 后端握手为 0.9.0；受限 IPC、17 个网站入口、资料加密保存、合成模型工具调用、财务预检、二进制上传下载、缓存课表、锁定、安全退出及第二窗口复用均通过。学校网络调用为 0，未测试真实账号登录，未调用付费模型。
+- `tests/audit_native_package.py` 通过：504 个条目、179148308 字节；宿主、核心、兼容引擎、界面、工具目录、对话资源与源码诊断清单均匹配，没有私人路径。ZIP SHA-256：`1233a98d9624524b21bbdd469755cd32d2f8b74d5d9558b1e57d9afc88dc7d7f`。
+- 本机放置可运行目录和桌面快捷方式，并提供完整 ZIP；仍为未签名的 Windows 便携开发包，不代表 macOS/Linux/手机端已完成，也不代表所有真实学校业务已验收。没有自动导入原 MCP 的私人目录。
+- 证据：`.local/migration-v9/acceptance-msvc-package.log`、`acceptance-msvc-native-smoke.log`、`acceptance-msvc-package-audit.json` 及 `.local/native-evidence/` 的实际窗口截图。私人验收文件不进入 Git。
