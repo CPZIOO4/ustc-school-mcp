@@ -21,7 +21,7 @@ OPERATIONS = {
 NEXT = {
     'authentication_required': '用户已授权使用保存的身份登录时，以 login_authorized=true 再调用本工具。',
     'identity_required': '在本机配置统一身份凭据或人工登录；不要把密码发送到对话。',
-    'manual_verification_required': '后台已停止，需要本人处理校方验证；不要重复启动登录。',
+    'manual_verification_required': '自动恢复已停在学校验证页，尚未识别具体验证类型。打开 SchoolAgent 的“账号与连接 → 对应平台 → 打开验证窗口”，查看官方页面要求并完成验证，再调用本平台连接检查。',
     'login_running': '后台登录尚未完成；稍后以原参数继续，复用正在运行的登录。',
     'login_busy': '另一学校站点正在登录；等待该站点完成，不并行启动统一身份登录。',
     'login_failed': '本次恢复失败或被中断；检查登录状态，停止自动重试。',
@@ -33,6 +33,9 @@ NEXT = {
     'unavailable': '查询未完成；检查服务状态，不能把失败解释为空结果。',
 }
 
+
+from .login_guidance import MESSAGES, reason as verification_reason
+NEXT.update(MESSAGES)
 
 class InvalidParameters(Exception):
     pass
@@ -91,7 +94,7 @@ class ReadSession:
                 return failure(service, 'login_failed')
             stage = (current.get('login_progress') or {}).get('stage')
             if stage == 'waiting_for_verification':
-                return failure(service, 'manual_verification_required', requires_user_action=True)
+                return failure(service, verification_reason((current.get('login_progress') or {}).get('detail','')), requires_user_action=True)
             if stage in {'error', 'cancelled', 'interrupted'}:
                 return failure(service, 'login_failed')
             if stage == 'connected' and current.get('login_running') is not True:

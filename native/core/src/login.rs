@@ -16,6 +16,16 @@ use url::Url;
 const IDENTITY: [&str; 2] = ["id.ustc.edu.cn", "passport.ustc.edu.cn"];
 const BB: &str =
     "https://www.bb.ustc.edu.cn/webapps/portal/execute/tabs/tabAction?tab_tab_group_id=_1_1";
+
+const LOGIN_PROBE:&str=r#"(()=>{const visible=s=>[...document.querySelectorAll(s)].some(e=>e.getClientRects().length);const text=document.body?.innerText||'';return {ready:document.readyState!=='loading',password:visible('input[type=password]'),captcha:visible('input[name=captcha],input[placeholder*=图形],.geetest_panel,.yidun_popup'),otp:visible('input[autocomplete=one-time-code],input[name=otp],input[placeholder*=验证码],input[name=code]'),email:/邮箱|邮件|email/i.test(text),phone:visible('canvas[id*=qr],img[id*=qr],input[placeholder*=动态口令]')};})()"#;
+fn challenge_code(v:&Value)->Option<&'static str>{
+    if v["ready"]!=true{return None;}
+    if v["captcha"]==true{Some("login_captcha_required")}
+    else if v["password"]==true{Some("login_password_required")}
+    else if v["otp"]==true{Some(if v["email"]==true{"login_email_required"}else{"login_phone_required"})}
+    else if v["phone"]==true{Some("login_phone_required")}else{None}
+}
+
 fn manual() -> Error {
     Error::new(
         "manual_verification_required",
@@ -51,6 +61,7 @@ fn entry(service: &str) -> Result<&'static str> {
         "student" => "https://xgyth.ustc.edu.cn/",
         "spaces" => "https://ic.lib.ustc.edu.cn/",
         "drive" => "https://pan.ustc.edu.cn/profile/index",
+        "compute" => "https://107.ustc.edu.cn/",
         "vlab" => "https://vlab.ustc.edu.cn/vm/",
         _ => return Err(Error::invalid()),
     })
@@ -68,6 +79,7 @@ fn host(service: &str) -> Result<&'static str> {
         "student" => "xgyth.ustc.edu.cn",
         "spaces" => "ic.lib.ustc.edu.cn",
         "drive" => "pan.ustc.edu.cn",
+        "compute" => "107.ustc.edu.cn",
         "vlab" => "vlab.ustc.edu.cn",
         _ => return Err(Error::invalid()),
     })
@@ -159,6 +171,32 @@ fn state_of(value: &Value) -> Value {
         || json!({"cookies":value.get("cookies").cloned().unwrap_or(json!([])),"origins":[]}),
     )
 }
+/// Private native-host bridge. Never exposed as a model tool or general UI route.
+pub(crate) fn browser_state(root: &Path, domain: &str, account: &str) -> Result<Value> {
+    let service = match domain {
+        "www.bb.ustc.edu.cn" | "bb.ustc.edu.cn" => "bb",
+        "jw.ustc.edu.cn" => "jw", "young.ustc.edu.cn" => "young",
+        "cwzh.ustc.edu.cn" => "finance", "lib.ustc.edu.cn" | "opac.lib.ustc.edu.cn" => "library",
+        "icourse.club" => "icourse", "i.ustc.edu.cn" => "portal",
+        "xgyth.ustc.edu.cn" => "student", "ic.lib.ustc.edu.cn" => "spaces",
+        "107.ustc.edu.cn" => "compute",
+        "pan.ustc.edu.cn" => "drive", "vlab.ustc.edu.cn" => "vlab",
+        "id.ustc.edu.cn" | "passport.ustc.edu.cn" => "identity",
+        _ => return Ok(json!({"cookies":[],"origins":[]})),
+    };
+    let optional = |name:&str, kind:&str| match read_if_present(root,name,kind,Some(account)) {
+        Err(e) if e.code=="authentication_required" => Ok(None), other=>other
+    };
+    let own = if service == "identity" { None } else { optional(&filename(service)?,profile(service))? };
+    let shared = if service == "icourse" { None } else {
+        optional("ustc-identity.device.dpapi","device")?
+    };
+    let mut shared = shared.as_ref().map(state_of).unwrap_or(json!({"cookies":[],"origins":[]}));
+    // Device records may also include BB. Only CAS cookies/origins cross services.
+    if let Some(cookies)=shared["cookies"].as_array_mut(){cookies.retain(|c| matches!(c["domain"].as_str().unwrap_or("").trim_start_matches('.'),"id.ustc.edu.cn"|"passport.ustc.edu.cn"));}
+    if let Some(origins)=shared["origins"].as_array_mut(){origins.retain(|o| matches!(o["origin"].as_str(),Some("https://id.ustc.edu.cn"|"https://passport.ustc.edu.cn")));}
+    Ok(combine(&own.as_ref().map(state_of).unwrap_or(json!({"cookies":[],"origins":[]})), &shared))
+}
 fn combine(own: &Value, shared: &Value) -> Value {
     let mut cookies = BTreeMap::new();
     let mut origins = BTreeMap::new();
@@ -200,6 +238,14 @@ fn request_decision(service: &str, params: &Value) -> Result<Decision> {
     };
     let method = r["method"].as_str().unwrap_or("");
     let domain = url.host_str().unwrap_or("").to_owned();
+    // Observed CAS device-check redirect. Only this HTTPS document GET is used;
+    // this does not authorize analytics APIs, credentials, or arbitrary paths.
+    if domain == "analytics.ustc.edu.cn" {
+        return Ok(if service != "icourse" && url.scheme()=="https"
+            && url.port_or_known_default()==Some(443) && url.username().is_empty()
+            && url.password().is_none() && method=="GET" && params["resourceType"]=="Document"
+            && url.path()=="/.isg/gateway/sso-init" { Decision::Continue } else { Decision::Abort });
+    }
     if !allowed_host(service, &domain) || !url.username().is_empty() || url.password().is_some() {
         return Ok(Decision::Abort);
     }
@@ -623,7 +669,8 @@ async fn run_inner(
     } else {
         target
     })?;
-    let deadline = Instant::now() + Duration::from_secs(timeout);
+    let began=Instant::now();
+    let deadline = began + Duration::from_secs(timeout);
     let mut next = Instant::now();
     let mut followed = HashSet::new();
     let mut captured = previous.clone();
@@ -637,9 +684,13 @@ async fn run_inner(
         let url = Url::parse(&raw).map_err(|_| Error::invalid())?;
         if IDENTITY.contains(&url.host_str().unwrap_or("")) {
             // Only inspect visibility, never read any password/code input value.
-            let waiting=page.evaluate("[...document.querySelectorAll('input[type=password],input[autocomplete=one-time-code]')].some(e=>e.getClientRects().length) || /验证码|动态口令|二次验证|Verification code/i.test(document.body?.innerText||'')")?==true;
-            if waiting && !headed {
-                return Err(manual());
+            let probe=page.evaluate(LOGIN_PROBE)?;
+            if let Some(code)=challenge_code(&probe) {
+                if !headed && Instant::now().duration_since(began)>Duration::from_secs(3) {
+                    let detail=crate::recovery::failure(&json!({"code":code,"service":service}))?;
+                    return Err(Error::new(code,detail["next_step"].as_str().unwrap_or("请打开验证窗口。")));
+                }
+                if headed {let detail=crate::recovery::failure(&json!({"code":code,"service":service}))?;notify("waiting_for_user",detail["next_step"].as_str().unwrap_or("请完成官方验证。"));}
             }
             if headed {
                 page.evaluate("(()=>{const c=[...document.querySelectorAll('input[type=checkbox]')].filter(e=>/信任.*设备|记住.*设备|Trust.*device|Remember.*device/i.test(e.closest('label')?.textContent||document.querySelector('label[for=\"'+CSS.escape(e.id)+'\"]')?.textContent||''));if(c.length===1&&!c[0].checked&&c[0].getClientRects().length)c[0].click();return true;})()")?;
@@ -699,7 +750,7 @@ async fn run_inner(
         page.clear_responses();
         page.pump(250)?;
     }
-    Err(manual())
+    Err(Error::new("login_page_unrecognized", "未识别到有效登录结果，请查看登录页面。"))
 }
 
 #[cfg(test)]
@@ -707,6 +758,15 @@ mod tests {
     use super::*;
     fn req(url: &str, method: &str, resource: &str) -> Value {
         json!({"request":{"url":url,"method":method},"resourceType":resource})
+    }
+    #[test]
+    fn challenge_probe_requires_visible_controls() {
+        assert_eq!(challenge_code(&json!({"ready":true,"email":true})),None);
+        assert_eq!(challenge_code(&json!({"ready":false,"password":true})),None);
+        for (field,code) in [("password","login_password_required"),("captcha","login_captcha_required"),("phone","login_phone_required")] {
+            let mut v=json!({"ready":true});v[field]=json!(true);assert_eq!(challenge_code(&v),Some(code));
+        }
+        assert_eq!(challenge_code(&json!({"ready":true,"otp":true,"email":true})),Some("login_email_required"));
     }
     #[test]
     fn fixed_services_and_guard_do_not_widen_credentials() {
@@ -760,6 +820,17 @@ mod tests {
         ));
     }
     #[test]
+    fn cas_gateway_only_accepts_observed_document_read() {
+        let url="https://analytics.ustc.edu.cn/.isg/gateway/sso-init";
+        assert!(matches!(request_decision("jw",&req(url,"GET","Document")).unwrap(),Decision::Continue));
+        for (service,url,method,kind) in [
+            ("jw",url,"POST","Document"),("jw",url,"GET","XHR"),("icourse",url,"GET","Document"),
+            ("jw","https://analytics.ustc.edu.cn/other","GET","Document"),
+            ("jw","http://analytics.ustc.edu.cn/.isg/gateway/sso-init","GET","Document"),
+            ("jw","https://analytics.ustc.edu.cn.evil.test/.isg/gateway/sso-init","GET","Document"),
+        ] {assert!(matches!(request_decision(service,&req(url,method,kind)).unwrap(),Decision::Abort));}
+    }
+    #[test]
     fn callback_upgrade_preserves_ticket_without_network() {
         let Decision::Fulfill {
             status, headers, ..
@@ -791,6 +862,20 @@ mod tests {
             "identity_mismatch"
         );
         assert!(check_account(None, Some("a\n")).is_err());
+    }
+    #[cfg(windows)]
+    #[test]
+    fn browser_bridge_scopes_cookies_and_checks_account() {
+        let root=std::env::temp_dir().join(format!("school-browser-{}",uuid::Uuid::new_v4()));std::fs::create_dir_all(&root).unwrap();
+        let cookie=|domain:&str|json!({"name":"session","value":"synthetic","domain":domain,"path":"/","secure":true,"expires":-1});
+        sessions::dispatch("sessions_write",&json!({"profile":"jw","path":root.join("jw.session.dpapi"),"account":"TEST", "value":{"account":"TEST","base_url":"https://jw.ustc.edu.cn","user_agent":"fixture","cookies":[cookie("jw.ustc.edu.cn")]}})).unwrap();
+        sessions::dispatch("sessions_device_save",&json!({"profile":"device","path":root.join("ustc-identity.device.dpapi"),"account":"TEST","channel":"chrome","context_options":{},"state":{"cookies":[cookie("id.ustc.edu.cn"),cookie("www.bb.ustc.edu.cn")],"origins":[]}})).unwrap();
+        let state=browser_state(&root,"jw.ustc.edu.cn","TEST").unwrap();
+        assert_eq!(state["cookies"].as_array().unwrap().len(),2);
+        assert!(!state.to_string().contains("www.bb.ustc.edu.cn"));
+        assert_eq!(browser_state(&root,"example.test","TEST").unwrap()["cookies"],json!([]));
+        assert_eq!(browser_state(&root,"jw.ustc.edu.cn","OTHER").unwrap_err().code,"identity_mismatch");
+        std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn shared_identity_wins_without_dropping_service_storage() {

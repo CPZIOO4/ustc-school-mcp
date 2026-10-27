@@ -73,6 +73,7 @@ fn host(profile: &str) -> Result<&'static str> {
         "rooms" => "roombooking.cmet.ustc.edu.cn",
         "hightech" => "hs.lib.ustc.edu.cn",
         "drive" => "pan.ustc.edu.cn",
+        "compute" => "107.ustc.edu.cn",
         "vlab" => "vlab.ustc.edu.cn",
         "llm" => "llm.ustc.edu.cn",
         _ => return Err(Error::invalid()),
@@ -81,7 +82,7 @@ fn host(profile: &str) -> Result<&'static str> {
 fn campus(profile: &str) -> bool {
     matches!(
         profile,
-        "portal" | "student" | "spaces" | "rooms" | "hightech" | "drive" | "vlab" | "llm"
+        "portal" | "student" | "spaces" | "rooms" | "hightech" | "drive" | "vlab" | "llm" | "compute"
     )
 }
 fn identity_host(value: &str) -> bool {
@@ -441,11 +442,12 @@ pub fn dispatch(operation: &str, input: &Value) -> Result<Value> {
                 return Err(mismatch());
             }
             let mut value = json!({"username":input["username"],"password":"","session_only":true,"saved_at":chrono::Utc::now().to_rfc3339(),"email_verification_enabled":false});
-            for key in ["email_verification_enabled", "email_verification_address"] {
+            for key in ["password", "session_only", "email_verification_enabled", "email_verification_address"] {
                 if let Some(v) = previous.get(key) {
                     value[key] = v.clone();
                 }
             }
+            if value["password"].as_str().is_some_and(|p|!p.is_empty()){value["session_only"]=json!(false);}
             write(input, profile, value)
         }
         _ => Err(Error::invalid()),

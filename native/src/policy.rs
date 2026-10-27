@@ -10,10 +10,10 @@ pub fn validate_route(method: &str, route: &str, size: usize) -> Result<(), Stri
     }
     let (path, query) = route.split_once('?').unwrap_or((route, ""));
     let allowed = match method {
-        "GET" => matches!(path, "/api/status" | "/api/diagnostics" | "/api/diagnostics/export"
+        "GET" => matches!(path, "/api/study" | "/api/schedule" | "/api/status" | "/api/diagnostics" | "/api/diagnostics/export"
             | "/api/campus/sites" | "/api/campus/profile" | "/api/campus/timetable"
             | "/api/digest" | "/api/artifact" | "/api/chats" | "/api/chat" | "/api/tasks"),
-        "POST" => matches!(path, "/api/upload" | "/api/shutdown" | "/api/campus/profile"
+        "POST" => matches!(path, "/api/study" | "/api/study/refresh" | "/api/schedule" | "/api/upload" | "/api/shutdown" | "/api/campus/profile"
             | "/api/campus/timetable/refresh" | "/api/digest/plan" | "/api/digest/preview-report"
             | "/api/digest/configure" | "/api/digest/refresh" | "/api/digest/read"
             | "/api/digest/courses" | "/api/digest/calendar" | "/api/digest/summarize"
@@ -77,6 +77,7 @@ mod tests {
         for path in ["https://example.com/api/status", "//example.com", "/api/../status", "/api/%2e%2e/status", "/api/status#x", "/api/status?url=https://example.com", "/api/status\\x"] {
             assert!(validate_route("GET", path, 0).is_err(), "{path}");
         }
+        assert!(validate_route("GET", "/api/native-browser-session?host=jw.ustc.edu.cn", 0).is_err());
         assert!(validate_route("GET", "/api/status", 1).is_err());
         assert!(validate_route("POST", "/api/login?x=1", 2).is_err());
         assert!(validate_route("DELETE", "/api/status", 0).is_err());

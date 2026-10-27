@@ -199,8 +199,9 @@ class ChatRunner:
                 if filename not in chat['allowed_files']:
                     chat['allowed_files'].append(filename)
             content = text + ('\n本条消息提供的文件：\n' + '\n'.join(supplied) if supplied else '')
+            if not any(message.get('role') == 'user' for message in chat['messages']):
+                chat['title'] = text[:36] or '学校事务'
             chat['messages'].append({'role': 'user', 'content': content})
-            chat['title'] = text[:36] or '学校事务'
             chat['turn_authorized'] = execute_authorized
         elif approval is not None:
             pending = chat.get('pending')

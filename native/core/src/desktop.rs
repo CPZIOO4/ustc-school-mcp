@@ -34,6 +34,7 @@ const SERVICES: &[(&str, &str, &str)] = &[
     ("portal", "一网通办", "portal-campus-session.dpapi"),
     ("student", "学工与奖学金", "student-campus-session.dpapi"),
     ("spaces", "学习空间", "spaces-campus-session.dpapi"),
+    ("compute", "107 算力平台", "compute-campus-session.dpapi"),
     ("vlab", "Vlab 虚拟机", "vlab-campus-session.dpapi"),
     ("drive", "科大云盘", "drive-campus-session.dpapi"),
 ];
@@ -212,8 +213,10 @@ impl App {
     }
     fn notify(&self, stage: &str, detail: &str) {
         if let Ok(mut state) = self.state.lock() {
-            state.operation["stage"] = json!(stage);
-            state.operation["detail"] = json!(detail);
+            if state.operation["stop_requested"] != true {
+                state.operation["stage"] = json!(stage);
+                state.operation["detail"] = json!(detail);
+            }
             if write(&self.root.join("operation.dpapi"), &state.operation).is_err() {
                 self.stopped.store(true, Ordering::SeqCst);
             }
@@ -300,6 +303,8 @@ impl App {
                             state.operation["state"] =
                                 json!(if matches!(error.code, "cancelled" | "stop_requested") {
                                     "stopped"
+                                } else if error.code == "interrupted" {
+                                    "interrupted"
                                 } else {
                                     "failed"
                                 });
@@ -331,20 +336,29 @@ impl App {
         Ok(json!({"operation_id":id,"started":true}))
     }
     fn stop(&self) -> Result<Value> {
-        self.stopped.store(true, Ordering::SeqCst);
-        let id = self
-            .state
-            .lock()
-            .map_err(|_| storage_error())?
-            .model_check
-            .clone();
+        let id = {
+            let mut state = self.state.lock().map_err(|_| storage_error())?;
+            // Serialize cancellation with start's reset of this same flag.
+            // Otherwise a new operation can clear it before we mark stopping.
+            self.stopped.store(true, Ordering::SeqCst);
+            if state.busy {
+                // Acknowledging cancellation is not proof that an in-flight
+                // school request stopped. Keep the task busy until its receipt.
+                state.operation["stop_requested"] = json!(true);
+                state.operation["stage"] = json!("stopping");
+                state.operation["detail"] = json!("已请求停止后续步骤，正在等待当前请求结束；已发出的操作请核实结果。");
+                write(&self.root.join("operation.dpapi"), &state.operation)?;
+            }
+            state.model_check.clone()
+        };
         if let Some(id) = id {
             app_call(&self.root, "test_cancel", json!({"id":id}))?;
         }
         Ok(json!({"stop_requested":true,"note":"停止后续步骤，已发出请求仍需核实。"}))
     }
     fn status(&self) -> Result<Value> {
-        let mail = self.legacy("metadata", json!({}))?["mail"].clone();
+        let metadata = self.legacy("metadata", json!({}))?;
+        let mail = metadata["mail"].clone();
         let model = app_call(&self.root, "public_settings", json!({}))?;
         let mut identity = self.identity();
         let locked = self.root.join("locked").exists();
@@ -364,7 +378,7 @@ impl App {
         .iter()
         .any(|p| p.join("Google/Chrome/Application/chrome.exe").is_file());
         Ok(
-            json!({"identity":identity,"locked":locked,"mail":mail,"model":model,"model_providers":[
+            json!({"identity":identity,"shared_identity":metadata["shared_identity"],"locked":locked,"mail":mail,"model":model,"model_providers":[
             {"id":"deepseek","label":"DeepSeek","base_url":"https://api.deepseek.com","model":"deepseek-flash"},
             {"id":"ustc","label":"科大大模型公共服务","base_url":"https://api.llm.ustc.edu.cn/v1","model":"deepseek-v4-flash"},
             {"id":"custom","label":"自定义兼容 API","base_url":"","model":""}],
@@ -378,7 +392,7 @@ impl App {
             "connected"
         } else if matches!(code, "authentication_required" | "identity_required") {
             "login_required"
-        } else if code == "manual_verification_required" {
+        } else if code == "manual_verification_required" || code.starts_with("login_") && code.ends_with("_required") {
             "verification_required"
         } else {
             "unavailable"
@@ -418,11 +432,15 @@ impl App {
                 )
             )
         {
-            value = runtime()?.block_on(login::run(
-                &json!({"private_dir":self.profile(),"service":service,"headed":false}),
-                &self.stopped,
-                &|s, d| self.notify(s, d),
-            ))?;
+            let shared=self.legacy("identity_restore",json!({"service":service}))?;
+            value=if shared["linked"]==true {shared} else {
+                match runtime()?.block_on(login::run(
+                    &json!({"private_dir":self.profile(),"service":service,"headed":false}),
+                    &self.stopped,&|s,d|self.notify(s,d))) {
+                    Ok(v)=>v,
+                    Err(e)=>crate::recovery::failure(&json!({"code":e.code,"service":service}))?
+                }
+            };
             if value["connected"] == true {
                 value = self.legacy(
                     "service_check",
@@ -538,7 +556,7 @@ impl App {
         if app_call(&self.root, "public_settings", json!({}))?["tested"] != true {
             return Err(invalid("请先在模型设置中保存并测试 API 连接。"));
         }
-        let chat = match value
+        let mut chat = match value
             .get("chat_id")
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
@@ -548,6 +566,11 @@ impl App {
         };
         if !chat["pending"].is_null() {
             return Err(invalid("请先确认或取消当前待执行操作。"));
+        }
+        if let Some(selector)=value.get("study_context").filter(|v|!v.is_null()) {
+            crate::workbench::context(&self.root,selector)?;
+            chat["study_context"]=selector.clone();
+            storage::chat_save(&json!({"database":self.database(),"chat":chat}))?;
         }
         let id = object_text(&chat, "id")?.to_owned();
         let input = json!({"root":self.root,"chat_id":id,"text":text,"files":files,"execute_authorized":value["execute_authorized"]==true});
@@ -838,6 +861,35 @@ impl App {
                 self.idle()?;
                 self.email_verification(value["enabled"].as_bool().ok_or_else(Error::invalid)?)
             }
+            "/api/study" => {self.require_login()?;crate::workbench::mutate(&self.root,&value,true)},
+            "/api/study/refresh" => {
+                self.require_login()?;
+                let who=crate::workbench::owner(&self.root)?;
+                let scope=object_text(&value,"scope")?.to_owned();
+                if !matches!(scope.as_str(),"courses"|"course"|"assignment"|"page"){return Err(Error::invalid());}
+                let state=crate::workbench::read(&self.root)?;
+                if scope!="courses" {
+                    let course=state["courses"].as_array().unwrap().iter().find(|c|c["id"]==value["course_id"]).ok_or_else(||invalid("请先更新课程列表。"))?;
+                    if scope=="assignment" && !state["tasks"].as_array().unwrap().iter().any(|t|t["source"]=="bb"&&t["course_id"]==value["course_id"]&&t["content_id"]==value["content_id"]){return Err(Error::invalid());}
+                    if scope=="page" {
+                        let mut pages=vec![&course["page"]];if let Some(a)=course["material_pages"].as_array(){pages.extend(a);}
+                        if !pages.iter().any(|p|p["links"].as_array().is_some_and(|a|a.iter().any(|l|l["path"]==value["path"] && l["internal"]==true))){return Err(invalid("请从已读取的材料目录中选择。"));}
+                    }
+                }
+                self.start("study_refresh",move |app| {
+                    let connection=app.ensure_service("bb",true)?;
+                    if connection["connected"]!=true {
+                        return Err(crate::recovery::returned_failure(&connection,None).map(|p|crate::recovery::read_error(&p)).unwrap_or_else(||invalid("BB连接尚未就绪，请在账号与连接中恢复后更新。")));
+                    }
+                    let result=app.legacy("study_read",value)?;
+                    crate::workbench::merge(&app.root,&who,&result)
+                })
+            },
+            "/api/schedule" => {
+                self.require_login()?;
+                if !matches!(value["action"].as_str(),Some("create"|"cancel"|"ack")){return Err(Error::invalid());}
+                crate::schedule::dispatch(&self.root,&value,true)
+            },
             "/api/chat/send" => self.send(&value),
             "/api/chat/approve" => self.approval(&value),
             "/api/clear" => self.clear(&value),
@@ -889,6 +941,22 @@ impl App {
             _ => {
                 self.require_login()?;
                 match path {
+                    "/api/native-browser-session" => {
+                        let host=query.get("host").ok_or_else(Error::invalid)?;
+                        if query.len()!=1 || host.len()>253 || !host.bytes().all(|b|b.is_ascii_alphanumeric()||b".-".contains(&b)){return Err(Error::invalid());}
+                        let identity=self.identity_record()?;
+                        let account=identity["username"].as_str().ok_or_else(Error::invalid)?;
+                        let state=login::browser_state(&self.profile(),host,account)?;
+                        let generation_path=self.profile().join("native-browser-generation.dpapi");
+                        let mut generation=read(&generation_path,json!(null))?;
+                        if generation.is_null(){generation=json!(uuid::Uuid::new_v4().simple().to_string());write(&generation_path,&generation)?;}
+                        let generation=generation.as_str().filter(|v|v.len()==32 && v.bytes().all(|b|b.is_ascii_hexdigit())).ok_or_else(Error::invalid)?;
+                        let owner=format!("{:x}",Sha256::digest(format!("{account}:{generation}").as_bytes()));
+                        let revision=format!("{:x}",Sha256::digest(state.to_string().as_bytes()));
+                        json!({"owner":owner,"revision":revision,"state":state})
+                    }
+                    "/api/study" => crate::workbench::read(&self.root)?,
+                    "/api/schedule" => crate::schedule::dispatch(&self.root,&json!({"action":"list"}),false)?,
                     "/api/chats" => {
                         json!({"chats":storage::chat_list(&json!({"database":self.database()}))?})
                     }
@@ -938,6 +1006,7 @@ impl App {
                 | "web-downloads"
                 | "vlab-downloads"
                 | "drive-downloads"
+                | "compute-downloads"
                 | "generated"
         ) {
             return Err(Error::invalid());
@@ -1079,6 +1148,7 @@ fn parse(reader: &mut BufReader<&mut TcpStream>) -> std::result::Result<Request,
     }
     let keys: &[&str] = match path {
         "/api/artifact" => &["chat", "id"],
+        "/api/native-browser-session" => &["host"],
         "/api/chat" => &["id"],
         "/api/tasks" => &["offset"],
         _ => &[],
@@ -1171,6 +1241,7 @@ fn public(path: &str) -> Option<Response> {
             include_bytes!("../../../src/school_mcp/desktop/web/transport.js"),
             "text/javascript; charset=utf-8",
         ),
+        "/workbench.js" => (include_bytes!("../../../src/school_mcp/desktop/web/workbench.js"), "text/javascript; charset=utf-8"),
         "/app.js" => (
             include_bytes!("../../../src/school_mcp/desktop/web/app.js"),
             "text/javascript; charset=utf-8",
@@ -1508,6 +1579,17 @@ pub fn run(root: &Path, native_stdio: bool, legacy: Arc<dyn chat_io::Legacy>) ->
             .legacy
             .call("digest_resume", json!({}), &digest.stopped, &|_, _| {});
     });
+    let calendar = Arc::clone(&app);
+    thread::spawn(move || {
+        while !calendar.shutdown.load(Ordering::SeqCst) {
+            if calendar.require_login().is_ok() {
+                if let Err(error)=crate::schedule::dispatch(&calendar.root,&json!({"action":"list"}),false) {
+                    calendar.incident(error.code,"schedule");
+                }
+            }
+            thread::sleep(Duration::from_secs(5));
+        }
+    });
     let active = Arc::new(AtomicUsize::new(0));
     while !app.shutdown.load(Ordering::SeqCst) {
         match listener.accept() {
@@ -1757,6 +1839,65 @@ mod tests {
             "stopped"
         );
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn stop_feedback_survives_late_progress_until_original_request_finishes() {
+        let fixture = Fixture::new();
+        let app = &fixture.app;
+        let (release, waiting) = std::sync::mpsc::channel();
+        app.start("synthetic_wait", move |_| {
+            waiting.recv_timeout(Duration::from_secs(5)).unwrap();
+            Err(Error::new("interrupted", "已停止后续步骤。"))
+        }).unwrap();
+        app.stop().unwrap();
+        app.notify("late_callback", "请求尚未结束");
+        let status = app.status().unwrap();
+        assert_eq!(status["busy"], true);
+        assert_eq!(status["operation"]["state"], "running");
+        assert_eq!(status["operation"]["stage"], "stopping");
+        assert_eq!(status["operation"]["stop_requested"], true);
+        assert!(app.start("duplicate", |_| Ok(json!({}))).is_err());
+        release.send(()).unwrap();
+        // Finalization includes encrypted diagnostic and operation writes. A
+        // one-second scheduling assumption flakes on a busy Windows machine.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while app.state.lock().unwrap().busy {
+            assert!(std::time::Instant::now() < deadline, "stop did not finalize");
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(app.status().unwrap()["operation"]["state"], "interrupted");
+        app.start("next_operation", |_| Ok(json!({}))).unwrap();
+        assert!(app.status().unwrap()["operation"]["stop_requested"].is_null());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn stop_cannot_publish_its_flag_inside_another_start_transaction() {
+        let fixture = Fixture::new();
+        let app = &fixture.app;
+        // Hold the same lock used by start, then let Stop arrive before start's
+        // final reset. Stop must publish its flag only after this transaction.
+        let state = app.state.lock().unwrap();
+        let stopping = Arc::clone(app);
+        let (entered, ready) = std::sync::mpsc::channel();
+        let (finished, result) = std::sync::mpsc::channel();
+        let worker = thread::spawn(move || {
+            entered.send(()).unwrap();
+            let _ = finished.send(stopping.stop());
+        });
+        ready.recv_timeout(Duration::from_secs(2)).unwrap();
+        let pending = result.recv_timeout(Duration::from_millis(100));
+        let published_before_lock = app.stopped.load(Ordering::SeqCst);
+        app.stopped.store(false, Ordering::SeqCst);
+        drop(state);
+        let completed = result.recv_timeout(Duration::from_secs(2));
+        worker.join().unwrap();
+        assert!(matches!(pending, Err(std::sync::mpsc::RecvTimeoutError::Timeout)));
+        assert!(!published_before_lock);
+        assert_eq!(completed.unwrap().unwrap()["stop_requested"], true);
+        assert!(app.stopped.load(Ordering::SeqCst));
+    }
     #[cfg(windows)]
     #[test]
     fn account_lock_background_guards_and_approval_cancellation_are_native() {
@@ -1787,6 +1928,28 @@ mod tests {
         app.clear(&json!({"scope":"account","confirmation":"account"}))
             .unwrap();
         assert_eq!(app.identity()["saved"], false);
+    }
+    #[cfg(windows)]
+    #[test]
+    fn compute_artifact_download_checks_chat_scope_and_digest() {
+        let fixture = Fixture::new();
+        fixture.login();
+        let app = &fixture.app;
+        let folder = app.profile().join("compute-downloads");
+        fs::create_dir(&folder).unwrap();
+        let path = folder.join("result.zip");
+        let bytes = b"verified experiment output\x00\xff";
+        fs::write(&path, bytes).unwrap();
+        let mut chat = app.new_chat().unwrap();
+        chat["artifacts"] = json!([{"id":"result-id","path":path,"directory":"compute-downloads","sha256":format!("{:x}",Sha256::digest(bytes))}]);
+        storage::chat_save(&json!({"database":app.database(),"chat":chat})).unwrap();
+        let mut query = BTreeMap::from([("chat".into(),chat["id"].as_str().unwrap().into()),("id".into(),"result-id".into())]);
+        assert_eq!(app.get("/api/artifact",&query).unwrap().body, bytes);
+        query.insert("id".into(),"another-artifact".into());
+        assert!(app.get("/api/artifact",&query).is_err());
+        query.insert("id".into(),"result-id".into());
+        fs::write(&path,b"changed output").unwrap();
+        assert!(app.get("/api/artifact",&query).is_err());
     }
     #[cfg(windows)]
     #[test]

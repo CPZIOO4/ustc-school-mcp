@@ -89,6 +89,73 @@ class BackendTests(unittest.TestCase):
         self.runner = ChatRunner(self.data, self.stop)
         self.chat = self.data.new_chat()
 
+    def test_stop_feedback_stays_pending_until_original_worker_finishes(self):
+        entered, release = threading.Event(), threading.Event()
+        def waiting():
+            entered.set()
+            if not release.wait(5):
+                raise AssertionError('Test release missing')
+            return {'state': 'stopped', 'note': '测试请求结束'}
+        self.app.start('synthetic_wait', waiting)
+        try:
+            self.assertTrue(entered.wait(2))
+            self.app.api('/api/stop', {})
+            self.app.notify('late_callback', '请求尚未结束')
+            self.assertTrue(self.app.busy())
+            saved = read_private(self.data.root / 'operation.dpapi')
+            self.assertEqual(saved['state'], 'running')
+            self.assertEqual(saved['stage'], 'stopping')
+            self.assertTrue(saved['stop_requested'])
+            self.assertIn('核实', saved['detail'])
+            with self.assertRaises(ValueError):
+                self.app.start('duplicate', lambda: {})
+        finally:
+            release.set()
+            self.app.worker.join(5)
+        self.assertEqual(self.app.operation['state'], 'stopped')
+        self.app.start('next_operation', lambda: {})
+        self.app.worker.join(5)
+        self.assertNotIn('stop_requested', self.app.operation)
+
+    def test_followup_preserves_searchable_conversation_title(self):
+        self.chat['messages'] = [{'role': 'assistant', 'content': '欢迎使用'}]
+        self.data.save_chat(self.chat)
+        with patch.object(ModelClient, 'complete', return_value=FINAL):
+            self.runner.run(self.chat['id'], '查看本周课程和作业')
+            saved = self.data.chat(self.chat['id'])
+            self.assertEqual(saved['title'], '查看本周课程和作业')
+            saved['title'] = '已有的课程安排记录'
+            self.data.save_chat(saved)
+            self.runner.run(self.chat['id'], '谢谢，再看一下下周的')
+        saved = self.data.chat(self.chat['id'])
+        self.assertEqual(saved['title'], '已有的课程安排记录')
+        self.assertEqual(sum(m['role'] == 'user' for m in saved['messages']), 2)
+
+    def test_stop_during_final_save_preserves_the_completed_receipt(self):
+        saving, release = threading.Event(), threading.Event()
+        caller = threading.current_thread()
+        def save(path, value):
+            if threading.current_thread() is not caller and value.get('state') == 'completed':
+                saving.set()
+                if not release.wait(5):
+                    raise AssertionError('Test release missing')
+            write_private(path, value)
+        with patch('school_mcp.desktop.app.write_private', side_effect=save):
+            self.app.start('synthetic_final_save', lambda: {'note': '原请求已完成，回执已核实'})
+            try:
+                self.assertTrue(saving.wait(2))
+                self.assertTrue(self.app.busy())
+                self.app.api('/api/stop', {})
+                self.assertEqual(self.app.operation['state'], 'completed')
+                self.assertEqual(self.app.operation['detail'], '原请求已完成，回执已核实')
+                self.assertNotIn('stop_requested', self.app.operation)
+            finally:
+                release.set()
+                self.app.worker.join(5)
+        saved = read_private(self.data.root / 'operation.dpapi')
+        self.assertEqual(saved['state'], 'completed')
+        self.assertEqual(saved['detail'], '原请求已完成，回执已核实')
+
     def test_unknown_task_snapshot_can_be_read_without_stopping_recovery(self):
         task=Store().create('vlab','synthetic recovery',None)
         task.update(state='needs_verification',write_blocked=True,

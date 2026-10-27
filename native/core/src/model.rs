@@ -1,7 +1,7 @@
 use crate::{strict_json, Error, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use std::{collections::HashSet, time::Duration};
+use std::{collections::HashSet, time::{Duration, Instant}};
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -230,6 +230,87 @@ fn network_error(error: reqwest::Error) -> Error {
 pub struct Client {
     http: reqwest::Client,
 }
+
+/// Assemble SSE bytes before decoding UTF-8. Partial tool arguments are never
+/// returned to the runner. Only answer text is published, never reasoning.
+#[derive(Default)]
+struct CompletionStream {
+    buffer: Vec<u8>, event: Vec<String>, total: usize,
+    message: Value, finish_reason: Option<String>, done: bool,
+}
+impl CompletionStream {
+    fn feed(&mut self, bytes: &[u8], publish: &mut dyn FnMut(&str)) -> Result<()> {
+        self.total += bytes.len();
+        if self.total > 2 * 1024 * 1024 { return Err(response_error()); }
+        self.buffer.extend_from_slice(bytes);
+        while let Some(end) = self.buffer.iter().position(|b| *b == b'\n') {
+            let raw: Vec<_> = self.buffer.drain(..=end).collect();
+            let line = std::str::from_utf8(&raw[..raw.len()-1]).map_err(|_| response_error())?.trim_end_matches('\r');
+            if line.is_empty() {
+                if !self.event.is_empty() {
+                    let data = self.event.join("\n"); self.event.clear();
+                    self.event(&data, publish)?;
+                }
+            } else if let Some(data) = line.strip_prefix("data:") {
+                self.event.push(data.strip_prefix(' ').unwrap_or(data).to_owned());
+            }
+            if self.done { break; }
+        }
+        Ok(())
+    }
+    fn event(&mut self, data: &str, publish: &mut dyn FnMut(&str)) -> Result<()> {
+        if data == "[DONE]" { self.done = true; return Ok(()); }
+        let value = strict_json::parse(data.as_bytes()).map_err(|_| response_error())?;
+        if value.get("error").is_some() { return Err(response_error()); }
+        let choices = value["choices"].as_array().ok_or_else(response_error)?;
+        if choices.is_empty() { return Ok(()); } // Usage-only trailer.
+        if choices.len()!=1 || choices[0]["index"] != 0 { return Err(response_error()); }
+        let choice = &choices[0];
+        if self.finish_reason.is_some() { return Err(response_error()); }
+        let delta = choice["delta"].as_object().ok_or_else(response_error)?;
+        if self.message.is_null() { self.message = json!({"role":"assistant","content":""}); }
+        if delta.get("role").is_some_and(|v| v != "assistant") { return Err(response_error()); }
+        if delta.get("refusal").is_some_and(truthy) { return Err(Error::new("model_refusal", "模型拒绝了本次请求；未执行新的工具调用。")); }
+        let mut changed = false;
+        for key in ["content", "reasoning_content"] {
+            if let Some(part) = delta.get(key).filter(|v| !v.is_null()) {
+                let part = part.as_str().ok_or_else(response_error)?;
+                let mut text = self.message[key].as_str().unwrap_or("").to_owned(); text.push_str(part);
+                self.message[key] = json!(text);
+                changed |= key == "content" && !part.is_empty();
+            }
+        }
+        if let Some(calls) = delta.get("tool_calls").filter(|v| !v.is_null()) {
+            if self.message.get("tool_calls").is_none() { self.message["tool_calls"] = json!([]); }
+            let assembled = self.message["tool_calls"].as_array_mut().unwrap();
+            for call in calls.as_array().ok_or_else(response_error)? {
+                let index = call["index"].as_u64().filter(|i| *i < 6).ok_or_else(response_error)? as usize;
+                if index > assembled.len() { return Err(response_error()); }
+                if index == assembled.len() { assembled.push(json!({"id":"","type":"function","function":{"name":"","arguments":""}})); }
+                if call.get("type").is_some_and(|v| v != "function") { return Err(response_error()); }
+                for (key, target) in [("id", "id"), ("name", "name"), ("arguments", "arguments")] {
+                    let part = if key=="id" { call.get(key) } else { call["function"].get(key) };
+                    if let Some(part) = part.filter(|v| !v.is_null()) {
+                        let part = part.as_str().ok_or_else(response_error)?;
+                        let dest = if key=="id" { &mut assembled[index][target] } else { &mut assembled[index]["function"][target] };
+                        *dest = json!(format!("{}{}",dest.as_str().unwrap_or(""),part));
+                    }
+                }
+            }
+        }
+        if let Some(reason) = choice.get("finish_reason").filter(|v| !v.is_null()) {
+            self.finish_reason = Some(reason.as_str().ok_or_else(response_error)?.to_owned());
+        }
+        if changed { publish(self.message["content"].as_str().unwrap_or("")); }
+        Ok(())
+    }
+    fn finish(self) -> Result<Value> {
+        if !self.done || !matches!(self.finish_reason.as_deref(), Some("stop" | "tool_calls")) {
+            return Err(Error::new("incomplete_model_response", "模型响应中断或被截断；未执行未完成的工具调用。"));
+        }
+        validated_message(self.message)
+    }
+}
 impl Client {
     pub fn new() -> Result<Self> {
         let http = reqwest::Client::builder()
@@ -263,19 +344,40 @@ impl Client {
         strict_json::parse(&body).map_err(|_| invalid())
     }
     pub async fn complete(&self, input: &Value) -> Result<Value> {
+        self.request(input, None).await
+    }
+    pub async fn stream(&self, input: &Value, publish: &mut dyn FnMut(&str)) -> Result<Value> {
+        self.request(input, Some(publish)).await
+    }
+    async fn request(&self, input: &Value, mut publish: Option<&mut dyn FnMut(&str)>) -> Result<Value> {
+        self.request_measured(input, publish.take(), &mut json!({})).await
+    }
+    pub async fn stream_measured(&self, input: &Value, publish: &mut dyn FnMut(&str), metrics: &mut Value) -> Result<Value> {
+        self.request_measured(input, Some(publish), metrics).await
+    }
+    async fn request_measured(&self, input: &Value, mut publish: Option<&mut dyn FnMut(&str)>, metrics: &mut Value) -> Result<Value> {
+        let started = Instant::now();
+        *metrics = json!({});
         let settings = Settings::parse(&input["settings"])?;
-        let body = payload(
+        let mut body = payload(
             &settings.model,
             &input["messages"],
             &input["tools"],
             input["force_tool"].as_str(),
         )?;
+        if publish.is_some() {
+            let mut value: Value = serde_json::from_slice(&body).map_err(|_| response_error())?;
+            value["stream"] = json!(true);
+            body = serde_json::to_vec(&value).map_err(|_| response_error())?;
+        }
         if body.len() > 900_000 {
             return Err(Error::new(
                 "context_capacity",
                 "本轮必要上下文过大；原记录已保留，请缩小任务范围。",
             ));
         }
+        metrics["request_bytes"] = json!(body.len());
+        metrics["message_count"] = json!(input["messages"].as_array().map_or(0, Vec::len));
         let response = self
             .http
             .post(format!("{}/chat/completions", settings.base_url))
@@ -285,12 +387,32 @@ impl Client {
             .send()
             .await
             .map_err(network_error)?;
+        metrics["headers_ms"] = json!(started.elapsed().as_millis() as u64);
+        metrics["http_status"] = json!(response.status().as_u16());
         if response.status().as_u16() != 200 {
             return Err(http_failure(response.status().as_u16()));
+        }
+        if publish.is_some() && response.headers().get("content-type")
+            .and_then(|v| v.to_str().ok()).is_some_and(|v| v.starts_with("text/event-stream")) {
+            let mut response = response;
+            let mut stream = CompletionStream::default();
+            while let Some(chunk) = response.chunk().await.map_err(network_error)? {
+                if metrics["first_chunk_ms"].is_null() { metrics["first_chunk_ms"] = json!(started.elapsed().as_millis() as u64); }
+                stream.feed(&chunk, publish.as_deref_mut().unwrap())?;
+                for (key, metric) in [("content", "first_content_ms"), ("reasoning_content", "first_reasoning_ms"), ("tool_calls", "first_tool_ms")] {
+                    if metrics[metric].is_null() && truthy(&stream.message[key]) { metrics[metric] = json!(started.elapsed().as_millis() as u64); }
+                }
+                metrics["reasoning_chars"] = json!(stream.message["reasoning_content"].as_str().map_or(0, |s|s.chars().count()));
+                if stream.done { break; }
+            }
+            metrics["total_ms"] = json!(started.elapsed().as_millis() as u64);
+            return stream.finish();
         }
         let value = self
             .read(response, 2 * 1024 * 1024, "invalid_model_response")
             .await?;
+        metrics["total_ms"] = json!(started.elapsed().as_millis() as u64);
+        metrics["transport"] = json!("json");
         let choice = value["choices"]
             .as_array()
             .and_then(|v| v.first())
@@ -346,5 +468,49 @@ impl Client {
             .collect();
         Ok(json!({"available": !ids.is_empty(), "models": ids,
             "note": "选择模型后保存并测试；列表不代表模型支持工具调用。"}))
+    }
+}
+
+#[cfg(test)]
+mod streaming_tests {
+    use super::*;
+    fn event(delta: Value, reason: Value) -> String {
+        format!("data: {}\r\n\r\n", json!({"choices":[{"index":0,"delta":delta,"finish_reason":reason}]}))
+    }
+    #[test]
+    fn utf8_fragmentation_publishes_only_real_content() {
+        let raw = event(json!({"role":"assistant","reasoning_content":"private reasoning"}), Value::Null)
+            + &event(json!({"content":"你好"}),Value::Null)
+            + &event(json!({"content":"，同学。"}),Value::Null)
+            + &event(json!({}),json!("stop"))+"data: [DONE]\r\n\r\n";
+        let mut s=CompletionStream::default();let mut parts=Vec::new();
+        for b in raw.bytes(){s.feed(&[b],&mut |t|parts.push(t.to_owned())).unwrap();}
+        assert_eq!(parts,vec!["你好","你好，同学。"]);
+        assert_eq!(s.finish().unwrap()["content"],"你好，同学。");
+    }
+    #[test]
+    fn tool_fragments_are_assembled_then_validated() {
+        let raw=event(json!({"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"look","arguments":"{\"x\":"}}]}),Value::Null)
+          + &event(json!({"tool_calls":[{"index":0,"function":{"name":"up","arguments":"1}"}}]}),json!("tool_calls"))+"data: [DONE]\n\n";
+        let mut s=CompletionStream::default();let mut parts=Vec::new();
+        for chunk in raw.as_bytes().chunks(7){s.feed(chunk,&mut |t|parts.push(t.to_owned())).unwrap();}
+        let m=s.finish().unwrap();assert!(parts.is_empty());
+        assert_eq!(m["tool_calls"][0]["function"],json!({"name":"lookup","arguments":"{\"x\":1}"}));
+    }
+    #[test]
+    fn interruption_and_truncation_never_release_tools() {
+        for reason in [Value::Null,json!("length"),json!("content_filter")] {
+            let raw=event(json!({"content":"partial"}),reason);
+            let mut s=CompletionStream::default();s.feed(raw.as_bytes(),&mut |_|{}).unwrap();
+            assert_eq!(s.finish().unwrap_err().code,"incomplete_model_response");
+        }
+        let mut s=CompletionStream::default();s.feed((event(json!({"content":"partial"}),json!("stop"))+"data: [DONE]\n\n").as_bytes(),&mut |_|{}).unwrap();assert!(s.finish().is_ok());
+    }
+    #[test]
+    fn refusal_bad_indices_and_size_fail_closed() {
+        for delta in [json!({"refusal":"no"}),json!({"tool_calls":[{"index":6}]}),json!({"content":{}})] {
+            let mut s=CompletionStream::default();assert!(s.feed(event(delta,Value::Null).as_bytes(),&mut |_|{}).is_err());
+        }
+        let mut s=CompletionStream::default();assert!(s.feed(&vec![b'a';2*1024*1024+1],&mut |_|{}).is_err());
     }
 }

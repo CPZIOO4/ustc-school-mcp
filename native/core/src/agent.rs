@@ -365,6 +365,7 @@ const VERIFIED: &[&str] = &[
     "school_spaces_status",
     "school_vlab_execute",
     "school_vlab_status",
+    "school_compute_experiment_status",
     "school_student_submit_application",
     "school_student_application_status",
 ];
@@ -399,6 +400,7 @@ fn receipt(value: &Value, depth: usize) -> Value {
         "can_send",
         "safe_to_submit",
         "reason_code",
+        "experiment_id",
         "preparation_id",
         "plan_id",
         "draft_id",
@@ -450,6 +452,7 @@ fn links(service: &str, value: &Value, depth: usize) -> Vec<Value> {
         ],
         "student" => &[("plan_id", "application_status")],
         "jw" => &[("job_id", "script_status")],
+        "compute" => &[("experiment_id", "experiment_status")],
         "drive" | "spaces" | "vlab" => &[("plan_id", "status")],
         _ => &[],
     };
@@ -591,7 +594,8 @@ fn resolve(
     let before_claim = ["drive", "spaces", "vlab", "student"].contains(&service)
         && result["state"] == "ready"
         && result["can_execute"] == true;
-    if !VERIFIED.contains(&tool) || result["state"] != "verified" && !before_claim {
+    let compute_checked=service=="compute" && tool=="school_compute_experiment_status" && result["job_id"].is_number() && matches!(result["state"].as_str(),Some("queued"|"running"|"completed"|"failed"|"cancelled"|"timeout"|"out_of_memory"|"node_fail"));
+    if !VERIFIED.contains(&tool) || result["state"] != "verified" && !before_claim && !compute_checked {
         return;
     }
     let supplied = links(service, arguments, 0);

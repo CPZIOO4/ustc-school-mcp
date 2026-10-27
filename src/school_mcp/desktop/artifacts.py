@@ -4,7 +4,7 @@ from pathlib import Path
 import uuid
 
 OUTPUTS = {'school_digest_export_calendar': 'calendar-exports', 'school_mail_download_attachment': 'attachments', 'school_mail_export': 'mail-exports',
-           'school_web_download': 'web-downloads', 'school_vlab_download': 'vlab-downloads', 'school_drive_download':'drive-downloads'}
+           'school_web_download': 'web-downloads', 'school_vlab_download': 'vlab-downloads', 'school_drive_download':'drive-downloads', 'school_compute_collect_experiment':'compute-downloads'}
 MAX_BYTES = 60 * 1024 * 1024
 DIRECTORIES = set(OUTPUTS.values()) | {'generated', 'web-downloads', 'drive-downloads', 'vlab-downloads'}
 

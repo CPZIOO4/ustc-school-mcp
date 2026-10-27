@@ -26,7 +26,7 @@ STAGES = {'startup', 'api', 'model', 'tool', 'login', 'connection', 'document',
           'persistence', 'background', 'recovery', 'ui'}
 SERVICES = {'app', 'agent', 'model', 'mail', 'bb', 'jw', 'young', 'finance',
             'library', 'teach', 'icourse', 'nan7', 'portal', 'student', 'spaces',
-            'drive', 'vlab', 'web', 'digest'}
+            'drive', 'compute', 'vlab', 'web', 'digest'}
 OUTCOMES = {
     'not_started': '操作尚未开始。',
     'read_failed': '本次查询未完成。',

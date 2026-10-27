@@ -6,6 +6,7 @@ import time
 from ..agent.catalog import adapter
 from ..login_runtime import SERVICES, progress
 from ..recovery import failure, returned_failure
+from ..login_guidance import reason as verification_reason
 
 
 # These tools operate locally or inspect setup/progress; they must work offline.
@@ -16,7 +17,7 @@ LOCAL_SUFFIXES = {'status', 'auth_status', 'setup_guide', 'bind_status', 'entry_
 
 
 def needs_connection(service, tool, mode):
-    if service in {'portal', 'student', 'spaces', 'vlab', 'web', 'drive', 'digest'}:
+    if service in {'portal', 'student', 'spaces', 'compute', 'vlab', 'web', 'drive', 'digest'}:
         return False  # Each operation restores and checks its session in one browser.
     suffix = tool.removeprefix(f'school_{service}_')
     return mode in {'read', 'prepare', 'execute'} and suffix not in LOCAL_SUFFIXES
@@ -33,7 +34,7 @@ def connect(service, stopped, notify, *, force=False, restore=True):
 
     if stopped.is_set():
         return {'state': 'stopped', 'connected': False}
-    if not force or service in {'portal', 'student', 'spaces', 'vlab', 'drive'}:
+    if not force or service in {'portal', 'student', 'spaces', 'compute', 'vlab', 'drive'}:
         value = check()
         if value.get('connected') is True:
             return value
@@ -55,7 +56,7 @@ def connect(service, stopped, notify, *, force=False, restore=True):
             stage = info.get('stage')
             notify(stage or 'authenticating', info.get('detail', '正在建立平台会话。'))
             if stage in {'waiting_for_verification', 'error', 'cancelled', 'interrupted'}:
-                return failure(code='manual_verification_required' if stage == 'waiting_for_verification' else 'login_failed', service=service)
+                return failure(code=verification_reason(info.get('detail','')) if stage == 'waiting_for_verification' else 'login_failed', service=service)
             if not state.get('login_running'):
                 return check()
             if stopped.wait(1):

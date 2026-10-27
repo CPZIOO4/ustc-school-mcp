@@ -34,8 +34,8 @@ def handle(root, action, value, stopped, notify):
         raise ServiceError('操作已停止。', code='interrupted')
     if action == 'connect':
         from .connections import connect
-        # Session recovery belongs to the native login owner. This adapter only
-        # checks the site; it must never launch the old Python reconnect worker.
+        # Native Bridge owns recovery, including the fixed identity_restore
+        # provider. This low-level action only checks the resulting session.
         return connect(value['service'], stopped, notify, restore=False)
     chat = data.chat(value['chat_id'])
     if action == 'task_context':

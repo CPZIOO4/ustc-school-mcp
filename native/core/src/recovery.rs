@@ -3,6 +3,12 @@ use crate::{Error, Result};
 use serde_json::{json, Value};
 
 const REASONS: &[(&str, &str, &str)] = &[
+    ("login_password_required", "manual_verification", "学校已返回密码登录页。点击“账号与连接 → 对应平台 → 打开验证窗口”，在官方页面输入统一身份账号和密码；出现设备信任选项时勾选。验证成功后应用自动保存会话。"),
+    ("login_email_required", "manual_verification", "学校正在要求邮件验证码。已关联并授权的邮箱验证会先自动尝试；若仍停在此处，点击“打开验证窗口”，选择邮箱验证并填写最新验证码。"),
+    ("login_captcha_required", "manual_verification", "学校正在要求图形或滑块验证。点击“打开验证窗口”，在官方页面完成图形或滑块；通过后继续登录，应用会自动检查连接。"),
+    ("login_phone_required", "manual_verification", "学校正在要求手机扫码或动态口令。点击“打开验证窗口”，按官方页面提示扫码或填写手机动态口令。"),
+    ("login_page_unrecognized", "manual_verification", "暂未识别到登录成功或明确的验证控件。点击“查看登录页面”检查是否停在跳转、网络错误或授权页；不要反复输入密码。"),
+
     (
         "authorization_required",
         "confirm_operation",
@@ -21,7 +27,7 @@ const REASONS: &[(&str, &str, &str)] = &[
     (
         "manual_verification_required",
         "manual_verification",
-        "需要本人完成学校验证；完成后检查连接，再继续原任务。",
+        "自动恢复已停在学校验证页，尚未识别具体验证类型。打开 SchoolAgent 的“账号与连接 → 对应平台 → 打开验证窗口”，查看官方页面要求并完成验证；应用随后检查连接。",
     ),
     (
         "access_denied",
@@ -74,6 +80,16 @@ const REASONS: &[(&str, &str, &str)] = &[
         "后台运行环境异常；检查本机 Chrome 和程序状态。",
     ),
     (
+        "browser_unavailable",
+        "check_runtime",
+        "后台浏览器未能完成连接；请检查 Chrome 和登录状态后继续原查询。",
+    ),
+    (
+        "study_week_unknown",
+        "check_calendar",
+        "教务未提供当前教学周；请核实校历后查询指定周次。",
+    ),
+    (
         "login_failed",
         "check_login_status",
         "本次恢复失败或中断；检查登录进度，不自动重复启动登录。",
@@ -120,7 +136,7 @@ const SERVICES: &[&str] = &[
     "rooms",
     "hightech",
     "drive",
-    "vlab",
+    "compute", "vlab",
     "web",
     "digest",
     "identity",
@@ -131,6 +147,13 @@ const DIAGNOSTIC_UNAVAILABLE: &str =
 
 fn reason(code: &str) -> Option<(&'static str, &'static str, &'static str)> {
     REASONS.iter().copied().find(|item| item.0 == code)
+}
+
+/// Carry a normalized read failure through a bounded compound operation.
+pub fn read_error(value: &Value) -> Error {
+    let (code, _, message) = reason(value["error_code"].as_str().unwrap_or("unavailable"))
+        .unwrap_or_else(|| reason("unavailable").unwrap());
+    Error::new(code, message)
 }
 
 fn service(value: Option<&str>) -> Option<&str> {

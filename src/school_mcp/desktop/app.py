@@ -28,12 +28,12 @@ from .. import safety_log
 
 LABELS = {'mail': '学校邮箱', 'bb': 'Blackboard', 'jw': '教务系统', 'young': '青春科大',
           'finance': '财务平台', 'library': '图书馆', 'teach': '教务处通知', 'icourse': '评课社区', 'nan7': '南七集市',
-          'portal': '一网通办', 'student': '学工与奖学金', 'spaces': '学习空间', 'vlab': 'Vlab 虚拟机', 'drive':'科大云盘'}
+          'portal': '一网通办', 'student': '学工与奖学金', 'spaces': '学习空间', 'compute': '107 算力平台', 'vlab': 'Vlab 虚拟机', 'drive':'科大云盘'}
 SESSION_FILES = {'bb': 'bb.session.dpapi', 'jw': 'jw.session.dpapi', 'library': 'library.session.dpapi',
                  'young': 'young-session.dpapi', 'finance': 'finance-session.dpapi',
                  'nan7': 'nan7-session.dpapi', 'icourse': 'icourse-session.dpapi',
                  'portal': 'portal-campus-session.dpapi', 'student': 'student-campus-session.dpapi',
-                 'spaces': 'spaces-campus-session.dpapi', 'vlab': 'vlab-campus-session.dpapi','drive':'drive-campus-session.dpapi'}
+                 'spaces': 'spaces-campus-session.dpapi', 'compute': 'compute-campus-session.dpapi', 'vlab': 'vlab-campus-session.dpapi','drive':'drive-campus-session.dpapi'}
 
 
 class Application:
@@ -93,7 +93,8 @@ class Application:
 
     def notify(self, stage, detail):
         with self.mutex:
-            self.operation.update(stage=stage, detail=detail)
+            if not self.operation.get('stop_requested'):
+                self.operation.update(stage=stage, detail=detail)
             write_private(self.data.root / 'operation.dpapi', self.operation)
 
     def start(self, kind, function):
@@ -182,7 +183,7 @@ class Application:
                 result = manual_icourse(self.notify)
                 self.connections['icourse'] = {'state': 'connected', 'checked_at': now()}
                 return result
-        elif service in {'portal','student','spaces','drive','vlab'}:
+        elif service in {'portal','student','spaces','drive','vlab','compute'}:
             self.require_login()
             from ..campus.login import manual
             def run():
@@ -465,6 +466,11 @@ class Application:
             return self.approval(value['chat_id'], value['approval_id'], value['approve'])
         if path == '/api/stop':
             self.stop_event.set()
+            with self.mutex:
+                if self.busy() and self.operation.get('state') == 'running':
+                    self.operation.update(stop_requested=True, stage='stopping',
+                        detail='已请求停止后续步骤，正在等待当前请求结束；已发出的操作请核实结果。')
+                    write_private(self.data.root / 'operation.dpapi', self.operation)
             return {'stop_requested': True, 'note': '停止后续步骤，已发出请求仍需核实。'}
         if path == '/api/clear':
             return self.clear(value.get('scope'), value.get('confirmation'))

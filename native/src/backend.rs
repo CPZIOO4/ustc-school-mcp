@@ -139,6 +139,15 @@ impl Backend {
         filename: Option<String>,
     ) -> Result<(u16, Vec<u8>), String> {
         policy::validate_route(method, route, body.len())?;
+        self.request_private(method, route, body, filename).await
+    }
+    pub async fn browser_session(&self, host: &str) -> Result<serde_json::Value, String> {
+        if host.len()>253 || !host.bytes().all(|b|b.is_ascii_alphanumeric()||b".-".contains(&b)){return Err("网站地址无效。".into());}
+        let (status,bytes)=self.request_private("GET", &format!("/api/native-browser-session?host={host}"),Vec::new(),None).await?;
+        if status!=200{return Err("无法继承当前账号会话，请在账号页检查登录。".into());}
+        serde_json::from_slice(&bytes).map_err(|_|"会话响应无效。".into())
+    }
+    async fn request_private(&self, method:&str, route:&str, body:Vec<u8>, filename:Option<String>) -> Result<(u16,Vec<u8>),String> {
         if self.stopped.load(Ordering::SeqCst) {
             return Err("应用已退出，请重新打开。".into());
         }

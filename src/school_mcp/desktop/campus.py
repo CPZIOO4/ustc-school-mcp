@@ -23,6 +23,7 @@ SITES = (
     ('spaces', '学习空间', '座位与讨论室', 'https://ic.lib.ustc.edu.cn/', '校园'),
     ('nan7', '南七集市', '校内二手交易', 'https://nan7market.com/', '校园'),
     ('drive', '科大云盘', '文件存储与共享', 'https://pan.ustc.edu.cn/profile/index', '资源'),
+    ('compute', '107 算力平台', '计算资源与作业状态', 'https://107.ustc.edu.cn/', '资源'),
     ('vlab', 'Vlab', '虚拟机与实验环境', 'https://vlab.ustc.edu.cn/vm/', '资源'),
     ('llm', '科大大模型', '学校模型服务', 'https://llm.ustc.edu.cn/', '资源'),
     ('navigation', 'USTC 导航', '更多校园入口', 'https://ustc.life/', '资源'),

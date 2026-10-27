@@ -52,7 +52,7 @@ pub struct Page {
     target: String,
     context: String,
     next_id: u64,
-    fire_ids: HashSet<u64>,
+    fire_ids: HashMap<u64, String>,
     child_sessions: HashSet<String>,
     child_resumes: HashMap<u64, String>,
     replies: HashMap<u64, Value>,
@@ -130,7 +130,7 @@ impl Page {
             target: String::new(),
             context: String::new(),
             next_id: 0,
-            fire_ids: HashSet::new(),
+            fire_ids: HashMap::new(),
             child_sessions: HashSet::new(),
             child_resumes: HashMap::new(),
             replies: HashMap::new(),
@@ -281,7 +281,7 @@ impl Page {
             return Err(failed());
         }
         let id = self.send(method, params)?;
-        self.fire_ids.insert(id);
+        self.fire_ids.insert(id, method.to_owned());
         Ok(())
     }
     fn fire_child(&mut self, session: &str, method: &str, params: Value) -> Result<()> {
@@ -294,7 +294,7 @@ impl Page {
         self.socket
             .send(Message::Text(request.to_string().into()))
             .map_err(|_| failed())?;
-        self.fire_ids.insert(self.next_id);
+        self.fire_ids.insert(self.next_id, method.to_owned());
         Ok(())
     }
     pub fn command(&mut self, method: &str, params: Value) -> Result<Value> {
@@ -312,11 +312,11 @@ impl Page {
             }
             if let Some(value) = self.replies.remove(&id) {
                 if value.get("error").is_some() {
-                    return Err(failed());
+                    return Err(Error::new("browser_unavailable", format!("后台浏览器命令 {method} 未完成，请检查浏览器运行状态。")));
                 }
                 return Ok(value["result"].clone());
             }
-            self.receive()?;
+            self.receive().map_err(|e| Error::new(e.code, format!("{method}: {}", e.message)))?;
         }
         let error = timeout();
         self.policy_error = Some(timeout());
@@ -362,9 +362,9 @@ impl Page {
         }
         let value: Value = serde_json::from_str(&text).map_err(|_| failed())?;
         if let Some(id) = value["id"].as_u64() {
-            if self.fire_ids.remove(&id) {
+            if let Some(method) = self.fire_ids.remove(&id) {
                 if value.get("error").is_some() {
-                    return Err(failed());
+                    return Err(Error::new("browser_unavailable", format!("后台浏览器异步命令 {method} 未完成。")));
                 }
                 if let Some(session) = self.child_resumes.remove(&id) {
                     self.fire_child(&session, "Runtime.runIfWaitingForDebugger", json!({}))?;
@@ -570,8 +570,13 @@ impl Page {
             return Err(Error::invalid());
         }
         let result = self.command("Page.navigate", json!({"url":url}))?;
-        if result.get("errorText").is_some() {
-            return Err(failed());
+        if let Some(code) = result["errorText"].as_str() {
+            let safe = code.strip_prefix("net::ERR_")
+                .filter(|s| s.len()<80 && s.bytes().all(|c|c.is_ascii_uppercase()||c==b'_'));
+            return Err(Error::new("network_unavailable", match safe {
+                Some(s)=>format!("后台页面连接失败：net::ERR_{s}。"),
+                None=>"后台页面连接失败，请检查网络与登录状态。".into(),
+            }));
         }
         if let Some(loader) = result["loaderId"].as_str() {
             let end = Instant::now() + Duration::from_secs(30);

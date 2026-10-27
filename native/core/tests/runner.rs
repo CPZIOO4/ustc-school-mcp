@@ -72,6 +72,30 @@ fn permissions_come_from_host_and_catalog() {
 }
 
 #[test]
+fn calendar_writes_require_host_permission_and_preview_exact_events() {
+    let args=json!({"action":"create","events":[{"title":"review","start":"2030-01-02T09:00:00+08:00"}]});
+    let state=request(&start(false),vec![call("school_schedule",args.clone(),"calendar")],false);
+    let state=step(&state,"tool_context",json!({"workflow":null}));
+    assert_eq!(state["chat"]["state"],"waiting_for_approval");
+    assert_eq!(state["chat"]["pending"]["preview"],args);
+    let state=request(&start(true),vec![call("school_schedule",args,"calendar")],false);
+    assert_eq!(step(&state,"tool_context",json!({"workflow":null}))["action"]["kind"],"dispatch_tool");
+    let state=request(&start(false),vec![call("school_schedule",json!({"action":"list"}),"calendar")],false);
+    assert_eq!(step(&state,"tool_context",json!({"workflow":null}))["action"]["kind"],"dispatch_tool");
+}
+
+#[test]
+fn workspace_changes_require_permission_and_keep_exact_preview() {
+    let args=json!({"action":"update","id":"bb:1:2","revision":4,"progress":"completed"});
+    let state=request(&start(false),vec![call("school_workspace",args.clone(),"workspace")],false);
+    let state=step(&state,"tool_context",json!({"workflow":null}));
+    assert_eq!(state["chat"]["state"],"waiting_for_approval");
+    assert_eq!(state["chat"]["pending"]["preview"],args);
+    let state=request(&start(false),vec![call("school_workspace",json!({"action":"list"}),"workspace")],false);
+    assert_eq!(step(&state,"tool_context",json!({"workflow":null}))["action"]["kind"],"dispatch_tool");
+}
+
+#[test]
 fn tasks_and_tools_are_bounded_before_io() {
     let mut arguments = args("school_bb_list_courses");
     arguments["task_id"] = json!("other-chat");

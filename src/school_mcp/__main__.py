@@ -6,8 +6,8 @@ import json
 
 def _main() -> None:
     parser = argparse.ArgumentParser(description="School MCP")
-    parser.add_argument("command", nargs="?", default="serve", choices=("serve", "doctor", "first-use", "setup", "mail-guide", "mail-bind", "mail-bind-status", "check", "bb-serve", "bb-setup", "bb-email-verification", "bb-login", "identity-login", "bb-check", "jw-serve", "jw-login", "jw-check", "library-serve", "library-login", "library-check", "teach-serve", "nan7-serve", "nan7-login", "icourse-serve", "icourse-login", "young-serve", "young-login", "young-registration-run", "young-registration-status", "young-registration-worker", "finance-serve", "finance-login", "finance-check", "script-worker", "agent-serve", "desktop", "portal-serve", "student-serve", "spaces-serve", "drive-serve", "vlab-serve", "web-serve", "digest-serve", "digest-worker"))
-    parser.add_argument("--service", action="append", choices=("mail", "bb", "jw", "library", "teach", "nan7", "icourse", "young", "finance", "agent", "portal", "student", "spaces", "drive", "vlab", "web", "digest"), help="Limit doctor or first-use to selected services; repeat for multiple services")
+    parser.add_argument("command", nargs="?", default="serve", choices=("serve", "doctor", "first-use", "setup", "mail-guide", "mail-bind", "mail-bind-status", "check", "bb-serve", "bb-setup", "bb-email-verification", "bb-login", "identity-login", "bb-check", "jw-serve", "jw-login", "jw-check", "library-serve", "library-login", "library-check", "teach-serve", "nan7-serve", "nan7-login", "icourse-serve", "icourse-login", "young-serve", "young-login", "young-registration-run", "young-registration-status", "young-registration-worker", "finance-serve", "finance-login", "finance-check", "script-worker", "agent-serve", "desktop", "portal-serve", "student-serve", "spaces-serve", "drive-serve", "compute-serve", "vlab-serve", "web-serve", "digest-serve", "digest-worker"))
+    parser.add_argument("--service", action="append", choices=("mail", "bb", "jw", "library", "teach", "nan7", "icourse", "young", "finance", "agent", "portal", "student", "spaces", "drive", "compute", "vlab", "web", "digest"), help="Limit doctor or first-use to selected services; repeat for multiple services")
     parser.add_argument("--address", default="", help="Prefill the local setup window with this email address")
     parser.add_argument("--force-identity-login", action="store_true", help="Run the registered USTC identity flow even if the BB session is valid")
     parser.add_argument("--email-verification", action="store_true", help="Authorize bb-setup to read the connected mailbox for USTC login verification codes")
@@ -25,7 +25,7 @@ def _main() -> None:
     parser.add_argument("--schedule-id", help="Native scheduled worker ID")
     parser.add_argument("--private-dir", help="Private directory for a scheduled worker")
     args = parser.parse_args()
-    if args.command in {name + '-serve' for name in ('portal', 'student', 'spaces', 'drive', 'vlab', 'web', 'digest')}:
+    if args.command in {name + '-serve' for name in ('portal', 'student', 'spaces', 'drive', 'compute', 'vlab', 'web', 'digest')}:
         import importlib
         importlib.import_module('school_mcp.' + args.command.removesuffix('-serve') + '.server').run()
         return

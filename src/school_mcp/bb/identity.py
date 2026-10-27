@@ -91,7 +91,8 @@ def save_session_identity(username: str) -> None:
     value = {'username': username, 'password': '', 'session_only': True,
              'saved_at': datetime.now(timezone.utc).isoformat(), 'email_verification_enabled': False}
     if previous:
-        value.update({k: previous[k] for k in ('email_verification_enabled', 'email_verification_address') if k in previous})
+        value.update({k: previous[k] for k in ('password', 'session_only', 'email_verification_enabled', 'email_verification_address') if k in previous})
+    if value.get('password'):value['session_only']=False
     _save('ustc-identity.credentials.dpapi', value)
 
 

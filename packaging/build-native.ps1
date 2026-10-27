@@ -52,6 +52,12 @@ try {
     Copy-Item -LiteralPath "native/core/target/$profile/school-core.exe" -Destination "$staging/school-core.exe"
     Copy-Item -LiteralPath "native/target/$profile/ustc-school-desktop.exe" -Destination "$staging/USTC-School-Agent.exe"
     foreach ($file in @('LICENSE', 'docs/native-desktop.md', 'docs/rust-migration.md', 'docs/safety-logs.md')) { Copy-Item -LiteralPath $file -Destination $staging }
+    $binaries = [ordered]@{}
+    foreach ($relative in @('USTC-School-Agent.exe', 'school-core.exe', 'engine/USTC-School-Engine.exe')) {
+        $binaries[$relative] = (Get-FileHash -LiteralPath (Join-Path $staging $relative) -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    [ordered]@{built_at_utc=[DateTime]::UtcNow.ToString('o'); profile=$profile; sha256=$binaries} |
+        ConvertTo-Json -Depth 4 | Set-Content -LiteralPath "$staging/release-manifest.json" -Encoding utf8
     $zip = Join-Path $projectRoot 'dist/USTC-School-Agent-Native-Windows.zip'
     Compress-Archive -LiteralPath (Get-ChildItem -LiteralPath $staging | Select-Object -ExpandProperty FullName) -DestinationPath $zip -Force
     (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content "$zip.sha256"

@@ -5,6 +5,9 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 const TOOLS: &[&str] = &[
+    "school_study_query",
+    "school_schedule",
+    "school_workspace",
     "school_agent_route",
     "school_agent_start",
     "school_agent_tools",
@@ -133,6 +136,7 @@ fn preview(chat: &Value, task: &Value) -> Value {
 }
 fn label(name: &str, args: &Value, flow: Option<&Value>, mode: &str) -> String {
     match name {
+        "school_schedule" => "正在处理个人日程与提醒…".into(),
         "school_local_create_file" => "正在生成文件…".into(),
         "school_local_list_files" | "school_local_read_file" => "正在读取你提供的材料…".into(),
         "school_agent_task" | "school_agent_tasks" => "正在恢复原任务记录…".into(),
@@ -335,12 +339,11 @@ pub fn step(input: &Value) -> Result<Value> {
                 return next(chat, session);
             }
             let authorized = chat["turn_authorized"] == true;
-            if name == "school_agent_call"
-                && (mode == "execute" || sensitive(&args["arguments"], 0)?)
+            if ((name == "school_agent_call" && (mode == "execute" || sensitive(&args["arguments"], 0)?)) || (matches!(name.as_str(), "school_schedule" | "school_workspace") && args["action"] != "list"))
                 && !authorized
             {
                 chat["pending"] = json!({"id":Uuid::new_v4().simple().to_string(),"name":name,"arguments":args,
-                    "call_id":session["call"]["id"],"preview":preview(&chat,&args["task_id"])});
+                    "call_id":session["call"]["id"],"preview":if matches!(name.as_str(),"school_schedule"|"school_workspace") {args.clone()} else {preview(&chat,&args["task_id"])}});
                 chat["state"] = json!("waiting_for_approval");
                 session["phase"] = json!("done");
                 event(

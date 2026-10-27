@@ -11,7 +11,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent
 SERVICES = ('mail', 'bb', 'jw', 'library', 'teach', 'nan7', 'icourse', 'young', 'finance')
-OPTIONAL_SERVICES = ('agent', 'portal', 'student', 'spaces', 'drive', 'vlab', 'web', 'digest')
+OPTIONAL_SERVICES = ('agent', 'portal', 'student', 'spaces', 'drive', 'compute', 'vlab', 'web', 'digest')
 NAMES = {s: 'ustc-' + s for s in SERVICES + OPTIONAL_SERVICES} | {'nan7': 'nan7market', 'icourse': 'icourse', 'agent': 'school-agent'}
 
 

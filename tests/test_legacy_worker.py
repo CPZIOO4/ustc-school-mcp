@@ -50,18 +50,31 @@ class LegacyWorkerTests(unittest.TestCase):
                 self.assertLessEqual(size, 16 * 1024 * 1024)
                 return json.loads(process.stdout.read(size))
             try:
-                self.assertEqual(len(call('campus_sites')['result']['sites']), 17)
+                self.assertEqual(len(call('campus_sites')['result']['sites']), 18)
                 self.assertIs(call('metadata')['result']['mail']['configured'], False)
                 with business_lock(tmp) as held:
                     self.assertTrue(held)
                     self.assertTrue(call('background_status')['result']['adapter_running'])
+                    # Local cached views must remain readable while a long
+                    # school operation holds the separate business lock.
+                    from school_mcp.desktop.storage import write_private
+                    profile = Path(tmp) / 'profile'
+                    write_private(profile / 'ustc-identity.credentials.dpapi', {
+                        'username': 'synthetic-student', 'password': '', 'session_only': True})
+                    write_private(profile / 'timetable-view.dpapi', {
+                        'account': 'synthetic-student', 'data': {'count': 1}, 'updated_at': 'synthetic'})
+                    self.assertTrue(call('campus_timetable')['result']['cached'])
+                    self.assertEqual(call('campus_profile')['result']['account'], 'synthetic-student')
+                    self.assertEqual(call('tasks_list')['result']['tasks'], [])
+                    # A refresh remains a business operation, not a read bypass.
+                    self.assertFalse(call('campus_timetable_refresh')['ok'])
                 self.assertFalse(call('background_status')['result']['adapter_running'])
                 self.assertIsNone(process.poll())
                 failure = call('campus_sites', root=str(Path(tmp) / 'another-scope'))
                 self.assertFalse(failure['ok'])
                 self.assertNotIn('another-scope', str(failure))
                 self.assertFalse(call('arbitrary-command')['ok'])
-                self.assertEqual(len(call('campus_sites')['result']['sites']), 17)
+                self.assertEqual(len(call('campus_sites')['result']['sites']), 18)
             finally:
                 process.stdin.close()
                 process.wait(15)

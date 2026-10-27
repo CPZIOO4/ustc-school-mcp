@@ -117,6 +117,11 @@ def main():
                 download_dir=Path(tmp)/'download-check';download_dir.mkdir()
                 cdp=page.context.new_cdp_session(page)
                 cdp.send('Browser.setDownloadBehavior',{'behavior':'allow','downloadPath':str(download_dir)})
+                # This fixture writes an artifact outside the running operation,
+                # so no task-completion event exists. Reopen the conversation as
+                # a user would; do not depend on the idle background poll period.
+                page.locator('nav [data-view="sites"]').click()
+                page.locator('#chatList button').filter(has_text='请帮我准备差旅报销材料').click()
                 expect(page.locator('#artifactFiles button')).to_have_count(1,timeout=12000)
                 page.locator('#artifactFiles button').click()
                 end=time.monotonic()+15

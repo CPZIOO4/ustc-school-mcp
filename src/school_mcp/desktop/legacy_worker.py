@@ -15,13 +15,14 @@ ACTIONS = CHAT_ACTIONS | {
     'metadata', 'service_check', 'mail_bind', 'campus_sites', 'campus_profile',
     'campus_profile_save', 'campus_timetable', 'campus_timetable_refresh',
     'digest_overview', 'digest_plan', 'digest_preview_report', 'digest_configure',
-    'digest_refresh', 'digest_read', 'digest_courses', 'digest_calendar',
+    'digest_refresh', 'digest_read', 'digest_courses', 'digest_calendar', 'study_flow',
     'digest_summarize', 'digest_resume', 'diagnostics_report', 'diagnostics_export',
     'diagnostics_clear', 'diagnostics_record', 'school_model_keys',
-    'school_model_import', 'background_status', 'tasks_list',
+    'school_model_import', 'background_status', 'tasks_list', 'study_read', 'identity_restore',
 }
 READ_ACTIONS = {'metadata', 'diagnostics_report', 'diagnostics_export', 'diagnostics_record',
-                'diagnostic', 'background_status', 'campus_sites'}
+                'diagnostic', 'background_status', 'campus_sites',
+                'campus_profile', 'campus_timetable', 'tasks_list'}
 
 
 @contextlib.contextmanager
@@ -81,9 +82,25 @@ def dispatch(data, action, value, stopped, notify):
     if action in CHAT_ACTIONS:
         from .chat_legacy import handle
         return handle(data.root, action, value, stopped, notify)
+    if action == 'study_read':
+        from .study_reader import read
+        return read(value, stopped, notify)
+    if action == 'study_flow':
+        from .. import study_flow
+        if value.get('action') == 'start':
+            return study_flow.start(value['date'], value['assignments'], stopped, lambda stage, detail: notify(stage, "课表或作业目录已读取，正在整理快速结果。" if isinstance(detail, dict) else detail))
+        if value.get('action') == 'continue':
+            return study_flow.advance(value['query_id'], stopped, notify)
+        if value.get('action') == 'status':
+            return study_flow.status(value['query_id'])
+        raise ValueError('未知分阶段查询。')
+    if action == 'identity_restore':
+        from .identity_bridge import restore
+        return restore(data.root, value['service'], stopped, notify)
     if action == 'metadata':
         from ..mail.onboarding import local_status
-        return {'mail': local_status()}
+        from .identity_bridge import status
+        return {'mail': local_status(), 'shared_identity': status(data.root)}
     if action == 'service_check':
         from .connections import connect
         # Restoration belongs to Rust login; never invoke Python reconnect here.

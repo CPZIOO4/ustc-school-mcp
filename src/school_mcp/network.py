@@ -21,7 +21,7 @@ INTERVALS = {"mail": 0.5, "smtp": 2.0, "bb": 1.0, "jw": 1.0, "library": 1.0,
              "library-public": 1.0, "teach": 1.0, "nan7": 1.0, "icourse": 1.0,
              "young": 2.0, "finance": 1.0, "identity": 5.0,
              "portal": 1.0, "student": 1.0, "spaces": 1.0, "rooms": 1.0,
-             "hightech": 1.0, "drive": 1.0, "vlab": 1.0, "llm": 1.0, "web": 1.0}
+             "hightech": 1.0, "drive": 1.0, "compute": 1.0, "vlab": 1.0, "llm": 1.0, "web": 1.0}
 
 
 class PolicyError(RuntimeError):

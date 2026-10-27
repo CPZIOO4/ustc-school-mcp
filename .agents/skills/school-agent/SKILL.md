@@ -17,6 +17,8 @@ description: 通过本项目学校智能体协调入口办理学校事务：识�
 
 ## 开始或恢复
 
+未来七天课表与 BB 作业联合查询可直接调用 `school_study_query`，无需创建协调任务。先展示返回的课表、作业目录与来源链接，再按 `next_tool` 调用 `school_study_continue`，每次核实一项提交历史。pending 表示待核实；中断后用原 query_id 调用 `school_study_status` 或 continue，沿用已读结果。桌面原生客户端会自动逐项继续并提前显示结果卡片。
+
 1. 首次部署读取 [部署说明](../../../docs/school-agent.md)。找不到 `school_agent_route` 时先完成客户端注册和加载；配置存在不等于已加载。
 2. 用户说“继续上次”时先 `school_agent_tasks` 找原任务，再 `school_agent_task(include_context=true)`。使用 `links` 查询原回执；列表按扫描分页，空页且有 next_offset 要继续。不要另建任务绕过未知状态。
 3. 已知流程时直接 `school_agent_start(workflow, goal)`；不确定时用 `school_agent_route(goal)` 获取关键词提示，由你根据用户原话选择。歧义会影响目标才问，多网站目标拆成多个任务。目标用简短摘要，不存密码、验证码、Cookie 或网页正文。start 返回常用查询的 `entry_tool.input_schema`，可直接 call，不必重复获取。

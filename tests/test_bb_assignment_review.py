@@ -1,6 +1,6 @@
 import asyncio
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from school_mcp.bb.assignment_review import parse_review, review_request_allowed, review_url
 from school_mcp.bb.assignments import parse_assignments
@@ -17,6 +17,34 @@ HTML = '''<h1 id="pageTitleHeader">复查提交历史记录: 合成作业</h1>
 
 
 class AssignmentReviewTests(unittest.TestCase):
+    def test_bb_error_page_is_not_a_successful_history_read(self):
+        from school_mcp.bb.assignment_review import inspect_assignment
+        for logged_out, code in [(False, 'upstream_error'), (True, 'authentication_required')]:
+            browser = MagicMock()
+            page = browser.new_context.return_value.new_page.return_value
+            page.url = 'https://www.bb.ustc.edu.cn' + PATH
+            page.content.return_value = '<h1 id="pageTitleHeader">错误</h1><p>出现错误。请与系统管理员联系。</p>' + ('<a id="topframe.login.label">登录</a>' if logged_out else '')
+            response = MagicMock(status=200, headers={})
+            with self.subTest(logged_out=logged_out), patch('school_mcp.bb.assignment_review.catalog',return_value={'assignments':[{'entry_path':PATH,'content_id':'_2_1','title':'HW'}]}), patch('school_mcp.bb.assignment_review.sync_playwright'), patch('school_mcp.bb.assignment_review.chrome_browser') as chrome, patch('school_mcp.bb.assignment_review.load_session',return_value={'cookies':[]}), patch('school_mcp.bb.assignment_review.network.limiter'), patch('school_mcp.bb.assignment_review.wait_for_review',return_value=response):
+                chrome.return_value.__enter__.return_value = browser
+                with self.assertRaises(BBError) as caught:
+                    inspect_assignment('_1_1', '_2_1')
+                self.assertEqual(caught.exception.code, code)
+
+    def test_history_timeout_has_fixed_stage_and_no_replay(self):
+        from school_mcp.bb.assignment_review import inspect_assignment, BrowserTimeout
+        browser=MagicMock();page=browser.new_context.return_value.new_page.return_value
+        page.goto.side_effect=BrowserTimeout('private URL and cookie')
+        events=[]
+        with patch('school_mcp.bb.assignment_review.catalog',return_value={'assignments':[{'entry_path':PATH,'content_id':'_2_1','title':'HW'}]}),patch('school_mcp.bb.assignment_review.sync_playwright'),patch('school_mcp.bb.assignment_review.chrome_browser') as chrome,patch('school_mcp.bb.assignment_review.load_session',return_value={'cookies':[]}),patch('school_mcp.bb.assignment_review.network.limiter'),patch('school_mcp.bb.assignment_review.wait_for_review',side_effect=BrowserTimeout('private URL and cookie')) as wait:
+            chrome.return_value.__enter__.return_value=browser
+            with self.assertRaises(BBError) as caught:
+                inspect_assignment('_1_1','_2_1',progress=lambda stage,msg:events.append(msg))
+        self.assertEqual(caught.exception.code,'timeout')
+        self.assertNotIn('private',str(caught.exception))
+        self.assertIn('上次核实记录',str(caught.exception))
+        wait.assert_called_once()
+
     def test_mcp_browser_work_runs_outside_async_event_loop(self):
         from school_mcp.bb.server import school_bb_inspect_assignment
         def inspect(*args, **kwargs):

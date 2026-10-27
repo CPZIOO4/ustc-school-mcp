@@ -21,7 +21,7 @@ fn interval(service: &str) -> Result<f64> {
         "smtp" | "young" => Ok(2.0),
         "identity" => Ok(5.0),
         "bb" | "jw" | "library" | "library-public" | "teach" | "nan7" | "icourse" | "finance"
-        | "portal" | "student" | "spaces" | "rooms" | "hightech" | "drive" | "vlab" | "llm"
+        | "portal" | "student" | "spaces" | "rooms" | "hightech" | "drive" | "compute" | "vlab" | "llm"
         | "web" => Ok(1.0),
         _ => Err(Error::invalid()),
     }

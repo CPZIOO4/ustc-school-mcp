@@ -37,7 +37,7 @@ const STAGES: &[&str] = &[
 ];
 const SERVICES: &[&str] = &[
     "app", "agent", "model", "mail", "bb", "jw", "young", "finance", "library", "teach", "icourse",
-    "nan7", "portal", "student", "spaces", "drive", "vlab", "web", "digest",
+    "nan7", "portal", "student", "spaces", "drive", "compute", "vlab", "web", "digest",
 ];
 const EXCEPTIONS: &[&str] = &[
     "Exception",

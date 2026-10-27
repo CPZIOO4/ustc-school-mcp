@@ -14,7 +14,7 @@ REASONS = {
     'authorization_required': ('confirm_operation', '操作尚未获准执行；核对具体预览和已有授权后继续。'),
     'authentication_required': ('restore_session', '登录已失效；在账号页恢复当前平台会话，仍失败时由本人重新验证。'),
     'identity_required': ('manual_login', '尚无可用身份；请在账号页由本人登录。'),
-    'manual_verification_required': ('manual_verification', '需要本人完成学校验证；完成后检查连接，再继续原任务。'),
+    'manual_verification_required': ('manual_verification', '自动恢复已停在学校验证页，尚未识别具体验证类型。打开 SchoolAgent 的“账号与连接 → 对应平台 → 打开验证窗口”，查看官方页面要求并完成验证；应用随后检查连接。'),
     'access_denied': ('check_permission', '平台拒绝访问；请核实账号权限，不要反复重新登录。'),
     'cooldown': ('wait_then_check', '请求正在冷却；按返回的等待时间检查连接，不要重连或换工具绕过冷却。'),
     'timeout': ('check_connection', '请求超时；检查网络和平台连接后再继续。'),
@@ -32,11 +32,14 @@ REASONS = {
     'unavailable': ('inspect_task', '未取得可靠结果；检查平台及原任务状态，不把失败当作空结果。'),
 }
 
+from .login_guidance import MESSAGES
+REASONS.update({code: ('manual_verification', message) for code, message in MESSAGES.items()})
+
 # Compatibility mode retains the legacy fixed table until non-native MCPs migrate.
 # Never let an exception attribute or website field become pipe text.
 SERVICES = frozenset({'app', 'agent', 'model', 'mail', 'smtp', 'bb', 'jw', 'young',
     'finance', 'library', 'library-public', 'teach', 'icourse', 'nan7', 'portal',
-    'student', 'spaces', 'rooms', 'hightech', 'drive', 'vlab', 'web', 'digest', 'identity', 'llm'})
+    'student', 'spaces', 'rooms', 'hightech', 'drive', 'compute', 'vlab', 'web', 'digest', 'identity', 'llm'})
 RETURN_STATES = frozenset(REASONS) | {'waiting_for_verification', 'authentication_failed',
     'needs_verification', 'uncertain', 'already_attempted'}
 DIAGNOSTIC_UNAVAILABLE = '诊断日志无法写入，请检查磁盘空间和目录权限；本次错误编号仅供当前界面使用。'

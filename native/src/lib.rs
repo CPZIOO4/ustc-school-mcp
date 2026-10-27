@@ -1,5 +1,6 @@
 mod backend;
 mod policy;
+mod browser_tabs;
 
 use std::{path::PathBuf, sync::{atomic::{AtomicBool, Ordering}, Arc}, time::{SystemTime, UNIX_EPOCH}};
 use tauri::{Emitter, Manager};
@@ -10,6 +11,7 @@ struct Host {
     resources: PathBuf,
     data_dir: PathBuf,
     closing: AtomicBool,
+    tabs: browser_tabs::Tabs,
 }
 
 impl Host {
@@ -41,7 +43,8 @@ impl Host {
 }
 
 #[tauri::command]
-async fn backend_request(request: tauri::ipc::Request<'_>, host: tauri::State<'_, Arc<Host>>, app: tauri::AppHandle) -> Result<tauri::ipc::Response, String> {
+async fn backend_request(request: tauri::ipc::Request<'_>, host: tauri::State<'_, Arc<Host>>, app: tauri::AppHandle, webview:tauri::Webview) -> Result<tauri::ipc::Response, String> {
+    if webview.label()!="main"{return Err("网页不能调用本地业务接口。".into());}
     let header = |key| request.headers().get(key).and_then(|v| v.to_str().ok()).map(str::to_owned);
     let route = header("x-school-route").ok_or("缺少本机操作地址。")?;
     let method = header("x-school-method").ok_or("缺少本机操作方法。")?;
@@ -49,9 +52,13 @@ async fn backend_request(request: tauri::ipc::Request<'_>, host: tauri::State<'_
         tauri::ipc::InvokeBody::Raw(bytes) => bytes.clone(),
         _ => return Err("本机请求格式无效。".into()),
     };
+    let clear_scope=if route=="/api/clear"{serde_json::from_slice::<serde_json::Value>(&body).ok().and_then(|v|v["scope"].as_str().map(str::to_owned))}else{None};
     policy::validate_route(&method, &route, body.len())?;
     let result = host.backend().await?.request(&method, &route, body, header("x-school-file")).await;
     let (status, bytes) = match result { Ok(r) => r, Err(error) => {host.log("engine_request_failed"); return Err(error);} };
+    if status==200 && ((route=="/api/clear" && clear_scope.as_deref()!=Some("mail")) || (route=="/api/status" && serde_json::from_slice::<serde_json::Value>(&bytes).is_ok_and(|v|v["locked"]==true||v["identity"]["saved"]!=true))){
+        let _gate=host.tabs.gate.lock().await;browser_tabs::clear(&app,route=="/api/clear" && serde_json::from_slice::<serde_json::Value>(&bytes).is_ok_and(|v|v["locked"]!=true));
+    }
     if route == "/api/shutdown" && status == 200 {
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(400)).await;
@@ -69,18 +76,26 @@ async fn open_external(url: String) -> Result<(), String> {
     let url = policy::external_url(&url)?;
     open::that_detached(url.as_str()).map_err(|_| "无法打开系统浏览器。".into())
 }
+#[tauri::command]
+async fn browser_open(url:String,background:Option<bool>,app:tauri::AppHandle,webview:tauri::Webview)->Result<(),String>{
+    if webview.label()!="main"{return Err("网页不能调用本地浏览器管理接口。".into());}browser_tabs::open_with_activation(app,url,!background.unwrap_or(false)).await
+}
+#[tauri::command]
+async fn browser_action(action:String,id:Option<String>,app:tauri::AppHandle,webview:tauri::Webview)->Result<(),String>{
+    if webview.label()!="main"{return Err("网页不能调用本地浏览器管理接口。".into());}browser_tabs::action(app,action,id).await
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let application = tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![backend_request, open_external])
+        .invoke_handler(tauri::generate_handler![backend_request, open_external, browser_open, browser_action])
         .setup(|app| {
             let args: Vec<String> = std::env::args().collect();
             let override_dir = args.windows(2).find(|v| v[0] == "--data-dir").map(|v| PathBuf::from(&v[1]));
             let data_dir = override_dir.unwrap_or_else(|| std::env::var_os("LOCALAPPDATA")
                 .map(PathBuf::from).unwrap_or_else(|| app.path().app_local_data_dir().unwrap()).join("USTCSchoolAgent"));
             let host = Arc::new(Host { backend: OnceCell::new(), resources: app.path().resource_dir()?,
-                data_dir: data_dir.clone(), closing: AtomicBool::new(false) });
+                data_dir: data_dir.clone(), closing: AtomicBool::new(false), tabs:browser_tabs::Tabs::default() });
             // Keep WebView cache outside the business directory: the engine must
             // initialize/validate that directory before anything else writes it.
             use std::hash::{Hash, Hasher};
@@ -89,7 +104,10 @@ pub fn run() {
             let webview_dir = app.path().app_cache_dir()?.join(format!("webview-{:x}", identity.finish()));
             app.manage(host.clone());
             tauri::async_runtime::spawn(async move { let _ = host.backend().await; });
-            tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+            let main_builder=tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()));
+            #[cfg(debug_assertions)]
+            let main_builder=if let Ok(port)=std::env::var("SCHOOL_MAIN_TEST_CDP").and_then(|v|v.parse::<u16>().map_err(|_|std::env::VarError::NotPresent)){main_builder.additional_browser_args(&format!("--remote-debugging-port={port}"))}else{main_builder};
+            main_builder
                 .title("学校助手").inner_size(1220.0, 820.0).min_inner_size(390.0, 560.0)
                 .visible(!args.iter().any(|v| v == "--hidden"))
                 .data_directory(webview_dir)
@@ -99,6 +117,7 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if matches!(event,tauri::WindowEvent::Resized(_)|tauri::WindowEvent::ScaleFactorChanged{..}){browser_tabs::resize(window.app_handle());}
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let app = window.app_handle().clone();

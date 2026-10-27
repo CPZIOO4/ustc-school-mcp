@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>学校助手 · 连接你的校园</title><link rel="stylesheet" href="/style.css"><script src="/transport.js" defer></script><script src="/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>学校助手 · 连接你的校园</title><link rel="stylesheet" href="/style.css"><script src="/transport.js" defer></script><script src="/app.js" defer></script><script src="/workbench.js" defer></script><script src="/browser-tabs.js" defer></script></head>
 <body>
 <a class="skip-link" href="#messageInput">跳转到输入框</a>
 <div class="shell">
@@ -8,8 +8,11 @@
   <div class="brand"><span class="brand-mark" data-icon="book"></span><div>学校助手<small>Campus AI Assistant</small></div></div>
   <nav aria-label="功能页面">
     <button data-view="chat" class="selected" aria-current="page"><span data-icon="chat"></span><span>对话</span></button>
+    <button data-view="courses"><span data-icon="book"></span><span>课程工作台</span></button>
+    <button data-view="assignments"><span data-icon="clipboard"></span><span>作业任务</span></button>
     <button data-view="sites"><span data-icon="connection"></span><span>校园网站</span></button>
     <button data-view="timetable"><span data-icon="calendar"></span><span>我的课表</span></button>
+    <button data-view="schedule"><span data-icon="calendar"></span><span>我的日程</span></button>
     <button data-view="profile"><span data-icon="user"></span><span>个人资料</span></button>
     <button data-view="accounts"><span data-icon="connections"></span><span>账号与连接</span></button>
     <button data-view="tasks"><span data-icon="clipboard"></span><span>任务记录</span></button>
@@ -21,27 +24,26 @@
   <div class="side-bottom"><span class="identity-dot" id="identityDot"></span><span id="sideIdentity">尚未登录</span><small><span data-icon="shield"></span>登录状态与任务保存在本机</small></div>
 </aside>
 <main>
-  <header class="topbar"><div><div class="eyebrow" id="pageEyebrow">YOUR CAMPUS, CONNECTED</div><h1 id="pageTitle">新的对话</h1></div><div class="header-right"><span class="local-label"><span data-icon="shield"></span>本机运行</span><button id="modelShortcut" class="model-shortcut" title="打开模型设置"><span class="model-dot"></span><span id="modelBadge">模型待配置</span><span data-icon="chevron"></span></button></div></header>
+  <header class="topbar"><div><div class="eyebrow" id="pageEyebrow">校园事务</div><h1 id="pageTitle">新的对话</h1></div><div class="header-right"><span class="local-label"><span data-icon="shield"></span>本机运行</span><button id="modelShortcut" class="model-shortcut" title="打开模型设置"><span class="model-dot"></span><span id="modelBadge">模型待配置</span><span data-icon="chevron"></span></button></div></header>
   <button id="historyToggle" class="history-toggle" aria-label="最近对话" aria-expanded="false" aria-controls="chatList"><span data-icon="history"></span></button>
   <div id="notice" role="status" class="notice hidden"></div>
   <section id="view-chat" class="view chat-view" aria-label="学校事务对话">
     <div class="chat-workspace">
       <div class="conversation-scroll" id="conversationScroll">
         <section id="onboarding" class="setup-card" aria-label="首次使用引导">
-          <div class="section-heading"><div><div class="eyebrow">欢迎使用 · 两步开始</div><h2>连接好，就可以开始。</h2></div><span class="setup-count" id="setupCount">0 / 2</span></div>
-          <p>登录学校身份，接上你的模型 API。各平台在使用时自动连接。</p>
+          <div class="section-heading"><div><h2>两步开始使用</h2></div><span class="setup-count" id="setupCount">0 / 2</span></div>
           <div class="steps">
             <button id="setupIdentity"><span class="step-number">01</span><span><b>学校身份</b><small id="stepIdentity">登录并完成验证</small></span><span class="step-status" data-icon="arrow"></span></button>
-            <button id="setupModel"><span class="step-number">02</span><span><b>连接 AI 模型</b><small id="stepModel">选择服务商，填写 API Key</small></span><span class="step-status" data-icon="arrow"></span></button>
+            <button id="setupModel"><span class="step-number">02</span><span><b>连接 AI 模型</b><small id="stepModel">使用学校模型或自己的 API</small></span><span class="step-status" data-icon="arrow"></span></button>
           </div>
-          <div class="optional-mail"><span>邮箱用于收发邮件与邮件验证码，可稍后绑定。</span><button id="setupMail" type="button"><span id="stepMail">绑定邮箱</span><span data-icon="arrow"></span></button></div>
+          <div class="optional-mail"><span>邮箱可稍后绑定，用于收发邮件与验证码。</span><button id="setupMail" type="button"><span id="stepMail">绑定邮箱</span><span data-icon="arrow"></span></button></div>
         </section>
         <div id="welcome" class="welcome">
-          <div class="welcome-symbol" data-icon="book"></div><div class="eyebrow">少一点琐事，多一点专注</div><h2>今天，有什么需要帮忙？</h2><p>从一张课表、一份作业，或一项待办开始。</p>
-          <div class="suggestions">
+          <h2>今天需要办理什么？</h2><p>直接输入需求，或从常用操作开始。</p>
+          <div class="suggestions" aria-label="常用操作">
             <button id="openTimetable"><span class="suggestion-icon" data-icon="calendar"></span><b>查看课表</b><small>直接查看本学期的课程安排</small><span class="suggestion-arrow" data-icon="arrow"></span></button>
-            <button data-prompt="帮我查看 BB 课程里有哪些作业，先不要提交"><span class="suggestion-icon" data-icon="clipboard"></span><b>查看 BB 作业</b><small>梳理课程里的作业要求</small><span class="suggestion-arrow" data-icon="arrow"></span></button>
-            <button data-prompt="我想准备差旅报销，请告诉我需要哪些材料"><span class="suggestion-icon" data-icon="document"></span><b>准备报销材料</b><small>核对材料，找出缺项</small><span class="suggestion-arrow" data-icon="arrow"></span></button>
+            <button id="openAssignments"><span class="suggestion-icon" data-icon="clipboard"></span><b>查看 BB 作业</b><small>梳理课程里的作业要求</small><span class="suggestion-arrow" data-icon="arrow"></span></button>
+            <button data-prompt="帮我查看近期的学术讲座和实习招聘信息，列出时间和原文入口"><span class="suggestion-icon" data-icon="document"></span><b>查看校园信息</b><small>讲座、实习与招聘</small><span class="suggestion-arrow" data-icon="arrow"></span></button>
           </div>
         </div>
         <div id="messages" class="messages" aria-live="polite" aria-relevant="additions text"></div><div id="progress" class="progress hidden" role="status"></div>
@@ -53,12 +55,15 @@
       </div>
       <div class="composer-dock">
         <form id="composer" class="composer"><div id="fileChips" class="file-chips"></div><textarea id="messageInput" rows="2" placeholder="告诉我你想做什么，或描述需要办理的事务…" aria-label="你的需求" maxlength="12000"></textarea>
-          <div class="composer-bottom"><label class="file-button" title="添加材料，每个文件最多 50 MiB"><span data-icon="attachment"></span><span>添加材料</span><input id="fileInput" type="file" multiple class="visually-hidden"></label><span class="keyboard-tip">Ctrl + Enter 发送</span><button type="button" id="stop" class="hidden stop-button"><span data-icon="stop"></span>停止后续步骤</button><button type="submit" id="send" class="primary"><span data-icon="send"></span>发送</button></div>
+          <div class="composer-bottom"><label class="file-button" title="添加材料，每个文件最多 50 MiB"><span data-icon="attachment"></span><span>添加材料</span><input id="fileInput" type="file" multiple class="visually-hidden"></label><span class="keyboard-tip">Ctrl + Enter 发送</span><span class="composer-action"><button type="button" id="stop" class="hidden primary" aria-label="停止生成及后续步骤" title="停止生成及后续步骤"><span data-icon="stop"></span></button><button type="submit" id="send" class="primary" aria-label="发送" title="发送"><span data-icon="send"></span></button></span></div>
         </form>
         <div class="composer-permission"><label class="permit"><input id="executePermit" type="checkbox"><span>允许办理本条指令中的操作</span></label><span class="permission-hint"><span data-icon="shield"></span>仅本条指令有效</span></div><p class="caption">查询与准备可直接进行；发送、提交、报名和发布需你的授权。</p>
       </div>
     </div>
   </section>
+  <section id="view-courses" class="view page-view hidden" aria-label="课程工作台"><div id="courseWorkspace"></div></section>
+  <section id="view-assignments" class="view page-view hidden" aria-label="作业任务"><div id="assignmentWorkspace"></div></section>
+  <aside id="studyAssistant" class="hidden study-assistant" aria-label="课程助手"><div class="study-assistant-heading"><strong id="studyAssistantTitle">课程助手</strong><button id="studyAssistantClose" type="button" aria-label="关闭课程助手">关闭</button></div></aside>
   <section id="view-sites" class="view page-view hidden" aria-label="校园网站">
     <div class="page-intro"><h2>校园网站</h2><p>直接打开原网站，也可以回到对话让助手帮你办理。</p></div>
     <label class="campus-search">查找网站<input id="siteSearch" type="search" placeholder="搜索名称或用途" maxlength="100"></label>
@@ -78,19 +83,19 @@
     <form id="profileForm" class="card"><h3>本人填写的资料</h3><p class="muted">仅保存在本机，不修改学校记录，也不会自动发送给模型。</p><div id="profileFields" class="profile-fields"></div><div class="actions"><button id="saveProfile" class="primary" type="submit">保存资料</button><button id="reloadProfile" type="button">重新读取</button></div><p id="profileStatus" class="campus-status" role="status">尚未读取。</p></form>
   </section>
   <section id="view-accounts" class="view page-view hidden" aria-label="账号与连接">
-    <div class="page-intro"><span class="eyebrow">CONNECTED CAMPUS</span><h2>一次连接，办好校园事务。</h2><p>学校密码只在官方页面输入，应用在本机加密保存登录状态。</p></div>
+    <div class="page-intro"><h2>管理学校账号与平台连接</h2><p>学校密码只在官方页面输入，应用在本机加密保存登录状态。</p></div>
     <div class="account-top">
       <article class="card account-card"><div class="card-heading"><span class="tile-icon" data-icon="key"></span><div><h3>统一身份认证</h3><span class="muted">学校账号与设备信任</span></div><span class="status-pill" id="identityStatus">待登录</span></div><p id="identityDetail">尚未登录</p><div class="actions"><button class="primary" id="loginIdentity">打开学校登录<span data-icon="arrow"></span></button><button id="lockApp">退出登录</button></div></article>
       <article class="card account-card"><div class="card-heading"><span class="tile-icon" data-icon="mail"></span><div><h3>学校邮箱</h3><span class="muted">本人登录，自动完成后续绑定</span></div><span class="status-pill" id="mailStatus">待绑定</span></div><p id="mailDetail">登录邮箱后，自动创建并保存客户端密码。</p><div class="actions"><button class="primary" id="loginMail">登录并绑定邮箱<span data-icon="arrow"></span></button><button id="resumeMail">恢复未完成绑定</button></div><label class="checkline"><input type="checkbox" id="emailVerification"><span>允许读取本次邮件验证码辅助认证<small>仅处理学校当前的验证请求</small></span></label></article>
     </div>
-    <div class="section-heading services-heading"><div><h3>校园服务连接 <span class="count-label">9 个平台</span></h3><p>每个平台单独登录，本机记住登录状态；通常无需重复输入，过期时再验证。</p></div></div><div id="serviceGrid" class="service-grid"></div><div class="operation-box hidden" id="accountOperation" role="status"></div>
+    <div class="section-heading services-heading"><div><h3>校园服务连接</h3><p>办理业务时会检查相关连接，无需逐一检查。需要登录的平台会引导你验证，并在本机保存会话。</p></div></div><div id="serviceGrid" class="service-grid"></div><div class="operation-box hidden" id="accountOperation" role="status"></div>
   </section>
   <section id="view-tasks" class="view page-view hidden" aria-label="任务记录">
-    <div class="page-intro"><span class="eyebrow">EVERY STEP, KEPT</span><h2>每一件事，都有来处。</h2><p>查看进度、核对回执，也可以回到原对话继续。</p></div>
+    <div class="page-intro"><h2>查看任务进度与结果</h2><p>查看进度、核对回执，也可以回到原对话继续。</p></div>
     <div class="task-toolbar"><div><h3>我的任务</h3><span class="muted" id="taskCount">读取本机记录</span></div><button id="refreshTasks"><span data-icon="refresh"></span>刷新任务</button></div><div id="taskList" class="task-list"></div><div class="pagination"><button id="previousTasks" class="hidden">上一页</button><span id="taskPage" class="muted"></span><button id="moreTasks" class="hidden">下一页<span data-icon="chevron"></span></button></div><p class="page-footnote"><span data-icon="info"></span>已安排不等于已完成；结果不明时先查询原业务回执。</p>
   </section>
   <section id="view-digest" class="view page-view hidden" aria-label="校园信息中心">
-    <div class="page-intro"><span class="eyebrow">CAMPUS UPDATES</span><h2>把关心的事，放在一起。</h2><p>先选择来源并预览，再开启定时提醒。时间不明确的消息会保留原文入口。</p></div>
+    <div class="page-intro"><h2>关注校园信息</h2><p>先选择来源并预览，再开启定时提醒。时间不明确的消息会保留原文入口。</p></div>
     <p id="digestStatus" role="status">登录学校身份后查看。</p>
     <section class="card digest-quick" aria-label="快速配置订阅">
       <h3>快速配置订阅</h3>
@@ -99,7 +104,7 @@
       <label for="digestRequest">或用一句话描述</label><textarea id="digestRequest" maxlength="1000" rows="2" placeholder="关注学术讲座和实习招聘，每天早上10点，只在应用内提醒"></textarea>
       <button id="digestRequestPlan">生成配置预览</button><p class="field-hint">一句话配置使用你连接的模型；预览不会改变原订阅。预设无需模型。</p>
     </section>
-    <details class="card" id="digestOptions" open><summary>来源与提醒设置</summary>
+    <details class="card" id="digestOptions"><summary>自定义来源与提醒设置</summary>
       <form id="digestForm">
         <fieldset><legend>信息来源</legend><div id="digestSources" class="digest-sources"></div></fieldset>
         <div class="digest-fields">
@@ -109,9 +114,11 @@
           <label>检查间隔（分钟）<input id="digestInterval" type="number" min="15" max="1440" value="60"></label>
           <label>日报时间（北京时间）<input id="digestDaily" type="time" value="08:00" required></label>
           <label>提前提醒（小时，0 关闭）<input id="digestUrgent" type="number" min="0" max="168" value="24"></label>
+        </div>
+        <details class="digest-advanced"><summary>高级采集设置</summary><div class="digest-fields">
           <label>每个来源最多采集页数<input id="digestPages" type="number" min="1" max="10" value="3"></label>
           <label>每个公开来源读取详情数<input id="digestDetails" type="number" min="0" max="30" value="10"></label>
-        </div>
+        </div><p class="field-hint">通常保持默认即可；提高数量会增加采集时间。</p></details>
         <details><summary>BB 课程选择</summary><button type="button" id="digestLoadCourses">读取我的 BB 课程</button><div id="digestCourses" class="digest-sources"></div><p>只扫描勾选课程中的标准作业；不会打开提交页面。</p></details>
         <label class="digest-check"><input id="digestEmailEnabled" type="checkbox">将简报发到指定邮箱（需要已绑定学校邮箱）</label>
         <label>通知收件邮箱<input id="digestEmail" type="email" autocomplete="off" placeholder="填写本人接收简报的邮箱"></label>
@@ -127,9 +134,9 @@
     <h3>收到的简报</h3><div id="digestMessages" class="digest-items"></div>
   </section>
   <section id="view-settings" class="view page-view hidden" aria-label="模型与设置">
-    <div class="page-intro"><span class="eyebrow">YOUR MODEL, YOUR CHOICE</span><h2>给助手，接上你的模型。</h2><p>使用你自己的 API，连接支持工具调用的模型。</p></div>
+    <div class="page-intro"><h2>连接 AI 模型</h2><p>可使用学校模型已有密钥，或填写自己的 API。保存后会检查能否调用学校工具。</p></div>
     <div class="settings-grid">
-      <form id="modelForm" class="card model-form"><div class="card-heading"><span class="tile-icon" data-icon="sparkles"></span><div><h3>模型 API 配置</h3><span class="muted">支持 Chat Completions 兼容接口</span></div></div>
+      <form id="modelForm" class="card model-form" aria-label="模型 API 配置">
         <label for="apiProvider">服务商</label><select id="apiProvider"><option value="deepseek">DeepSeek</option><option value="ustc">科大大模型公共服务</option><option value="custom">自定义兼容 API</option></select>
         <div id="schoolModelSetup" class="hidden"><button type="button" id="fetchSchoolKeys">使用学校账号的已有密钥</button><label for="schoolKey">学校密钥</label><select id="schoolKey"><option value="">先获取已有密钥</option></select><button type="button" id="connectSchoolModel">绑定所选密钥并测试</button><p id="schoolModelHint" class="field-hint" role="status">复用学校登录，无需复制密钥；也可以在下方手动填写。</p></div>
         <label for="apiBase">API 基础地址</label><input id="apiBase" type="url" placeholder="https://api.example.com/v1" autocomplete="off" required>
@@ -137,7 +144,7 @@
         <label for="apiModel">模型</label><div class="model-picker"><input id="apiModel" list="modelOptions" placeholder="选择或填写模型名" autocomplete="off" required><datalist id="modelOptions"></datalist><button id="fetchModels" type="button"><span data-icon="refresh"></span>获取模型列表</button></div><p id="modelListStatus" class="field-hint" role="status">可使用推荐模型，也可填写服务商提供的其他模型。</p>
         <div class="actions"><button class="primary" type="submit" id="saveModel"><span data-icon="check"></span>保存并测试</button><button type="button" id="testModel"><span data-icon="connection"></span>重新测试</button><button type="button" id="startChat" class="hidden">开始对话<span data-icon="arrow"></span></button></div><p id="modelStatus" class="model-status" role="status"></p>
       </form>
-      <div class="settings-aside"><article class="settings-note"><span class="tile-icon" data-icon="shield"></span><h3>你的配置，留在本机。</h3><p>密钥在这台电脑上加密保存。办理事务需要的对话和工具结果，会发送到你配置的模型服务。</p><div class="note-divider"></div><p>学校密码、验证码和 API Key，请使用专用登录或设置入口，不要发进对话。</p></article><article class="card data-card"><h3>本机数据</h3><p id="dataLocation" class="data-path"></p><span class="muted">包含登录状态、聊天、任务和已选择的材料。</span></article></div>
+      <div class="settings-aside"><article class="settings-note"><span class="tile-icon" data-icon="shield"></span><h3>模型与数据</h3><p>密钥在这台电脑上加密保存。办理事务需要的对话和工具结果，会发送到你配置的模型服务。</p><div class="note-divider"></div><p>学校密码、验证码和 API Key，请使用专用登录或设置入口，不要发进对话。</p></article><article class="card data-card"><h3>本机数据</h3><p id="dataLocation" class="data-path"></p><span class="muted">包含登录状态、聊天、任务和已选择的材料。</span></article></div>
     </div>
     <article class="card diagnostics-card" aria-labelledby="diagnosticsTitle">
       <h3 id="diagnosticsTitle">安全日志与故障报告</h3>
@@ -148,6 +155,12 @@
       <details id="diagnosticsPreview" class="hidden"><summary>预览即将导出的完整报告</summary><pre id="diagnosticsJson"></pre></details>
     </article>
     <article class="card privacy"><h3>账号与应用管理</h3><p>切换学校账号会清除当前账号的本机记录，保留模型配置。运行中的任务须先停止并核实。</p><div class="actions"><button id="unbindMail">解除邮箱绑定</button><button id="switchAccount">切换学校账号</button><button class="danger" id="clearAll">清除所有本机数据</button><button id="quitApp">退出应用<span data-icon="exit"></span></button></div></article>
+  </section>
+  <section id="view-schedule" class="view hidden">
+    <div class="section-heading"><div><h2>把安排放进时间里</h2></div><button id="scheduleRefresh">刷新</button></div>
+    <div class="actions"><button id="schedulePrev" aria-label="前一天">←</button><input type="date" id="scheduleDate" aria-label="日程日期"><button id="scheduleNext" aria-label="后一天">→</button><button id="scheduleToday">今天</button></div>
+    <p class="caption">应用运行时到点提醒；关闭后重开，会补提醒尚未结束的日程。</p>
+    <p id="scheduleStatus" role="status"></p><div class="schedule-layout"><div id="scheduleBoard"></div><aside id="scheduleDetail" class="card"><h3>选择一项日程</h3><p>查看时间、提醒与作业入口。</p></aside></div>
   </section>
   <footer class="app-footer"><span>学校助手 <span class="footer-separator">/</span> 你的校园事务助手</span><span>个人开源项目 · 非学校官方应用</span></footer>
 </main></div>

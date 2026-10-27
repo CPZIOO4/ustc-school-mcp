@@ -194,7 +194,7 @@ mod tests {
     fn fixed_scope_and_entry_permissions() {
         let flows = workflows().unwrap();
         let flows = flows.as_object().unwrap();
-        assert_eq!(flows.len(), 18);
+        assert_eq!(flows.len(), 19);
         let mut names = HashSet::new();
         for (key, flow) in flows {
             assert_eq!(entry(key).unwrap()["mode"], "read");
@@ -206,7 +206,7 @@ mod tests {
                     .unwrap());
             }
         }
-        assert_eq!(names.len(), 193);
+        assert_eq!(names.len(), 203);
     }
 
     #[test]

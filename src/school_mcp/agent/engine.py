@@ -23,7 +23,7 @@ VERIFIED_TOOLS = {
     'school_young_run_registration', 'school_young_registration_status',
     'school_drive_execute', 'school_drive_status',
     'school_spaces_execute', 'school_spaces_status',
-    'school_vlab_execute', 'school_vlab_status',
+    'school_vlab_execute', 'school_vlab_status', 'school_compute_experiment_status',
     'school_student_submit_application', 'school_student_application_status',
 }
 
@@ -53,7 +53,7 @@ def check_identity(task):
 def receipt(result):
     """Store status and opaque references, not mail bodies, tables or web content."""
     keys = ('state', 'status', 'phase', 'can_execute', 'can_send', 'safe_to_submit', 'reason_code',
-            'preparation_id', 'plan_id', 'draft_id', 'job_id', 'schedule_id', 'content_sha256',
+            'experiment_id', 'preparation_id', 'plan_id', 'draft_id', 'job_id', 'schedule_id', 'content_sha256',
             'expected_sha256', 'offer_id', 'worker_running', 'succeeded', 'verified')
     output = {k: result[k] for k in keys if k in result and
               (isinstance(result[k], (bool, int)) or isinstance(result[k], str) and len(result[k]) <= 160)}
@@ -72,6 +72,7 @@ def links(service, result):
         'mail': [('draft_id', 'send_status', 'draft_id'), ('plan_id', 'action_status', 'plan_id'), ('job_id', 'script_status', 'job_id')],
         'student': [('plan_id', 'application_status', 'plan_id')],
         'jw': [('job_id', 'script_status', 'job_id')],
+        'compute': [('experiment_id','experiment_status','experiment_id')],
         **{s: [('plan_id', 'status', 'plan_id')] for s in ('drive', 'spaces', 'vlab')},
     }
     output = []
@@ -105,7 +106,8 @@ def resolve_verified(task, service, tool_name, arguments, result, index):
     replay of its original write. Other unresolved writes remain blocked.
     """
     before_claim = service in {'drive', 'spaces', 'vlab', 'student'} and result.get('state') == 'ready' and result.get('can_execute') is True
-    if tool_name not in VERIFIED_TOOLS or result.get('state') != 'verified' and not before_claim:
+    compute_checked = service == 'compute' and tool_name == 'school_compute_experiment_status' and result.get('state') in {'queued','running','completed','failed','cancelled','timeout','out_of_memory','node_fail'} and result.get('job_id') is not None
+    if tool_name not in VERIFIED_TOOLS or result.get('state') != 'verified' and not before_claim and not compute_checked:
         return
     actual = links(service, result)
     supplied = links(service, arguments)

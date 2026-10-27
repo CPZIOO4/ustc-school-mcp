@@ -140,3 +140,18 @@ fn insufficient_budget_and_incomplete_batches_fail_closed() {
         "context_incomplete_batch"
     );
 }
+
+#[test]
+fn followup_drops_old_reasoning_keeps_exact_links_and_current_reasoning() {
+    let input=json!({"instructions":"s","model":"m","tools":[],"messages":[
+        {"role":"user","content":"查询"},
+        {"role":"assistant","content":"[作业](https://www.bb.ustc.edu.cn/path?id=exact)","reasoning_content":"old-private"},
+        {"role":"user","content":"缩短"},
+        {"role":"assistant","content":"当前回答","reasoning_content":"current"}
+    ]});
+    let projected=context::project(&input).unwrap();
+    assert!(projected["messages"][2].get("reasoning_content").is_none());
+    assert_eq!(projected["messages"][2]["content"],input["messages"][1]["content"]);
+    assert_eq!(projected["messages"][4]["reasoning_content"],"current");
+    assert_eq!(input["messages"][1]["reasoning_content"],"old-private");
+}

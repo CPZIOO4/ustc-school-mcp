@@ -44,6 +44,9 @@ const ACTIONS: &[&str] = &[
     "school_model_import",
     "background_status",
     "tasks_list",
+    "study_read",
+    "study_flow",
+    "identity_restore",
 ];
 
 fn unavailable() -> Error {
@@ -180,6 +183,12 @@ impl Legacy for Bridge {
             {
                 return Ok(checked);
             }
+            // Reuse the explicitly linked account provider before asking for
+            // manual CAS interaction. The provider returns sessions only.
+            let shared=self.call("identity_restore",json!({"service":service}),stopped,notify)?;
+            if shared["linked"]==true {
+                return if shared["connected"]==true {self.call("service_check",input,stopped,notify)} else {Ok(shared)};
+            }
             let request =
                 json!({"root":self.root,"service":service,"headed":false,"timeout_seconds":120});
             let result = std::thread::scope(|scope| {
@@ -223,6 +232,9 @@ impl Legacy for Bridge {
                 | "diagnostic"
                 | "background_status"
                 | "campus_sites"
+                | "campus_profile"
+                | "campus_timetable"
+                | "tasks_list"
         );
         let lane = if is_read { &self.read } else { &self.business };
         let mut guard = lane.lock().map_err(|_| unavailable())?;
@@ -289,6 +301,11 @@ impl Legacy for Bridge {
                             "authentication_required",
                             "identity_required",
                             "manual_verification_required",
+                            "login_password_required",
+                            "login_email_required",
+                            "login_captcha_required",
+                            "login_phone_required",
+                            "login_page_unrecognized",
                             "interrupted",
                             "task_access_denied",
                             "cooldown",
@@ -310,10 +327,8 @@ impl Legacy for Bridge {
                             .into_iter()
                             .find(|c| *c == code)
                             .unwrap_or("runtime_failure");
-                        return Err(Error::new(
-                            code,
-                            "本机兼容业务未完成，请查看诊断并核实原记录。",
-                        ));
+                        let detail=crate::recovery::failure(&json!({"code":code}))?;
+                        return Err(Error::new(code,detail["next_step"].as_str().unwrap_or("本机兼容业务未完成，请查看诊断。")));
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => continue,
                     Err(_) => return Err(unavailable()),
@@ -350,6 +365,9 @@ impl Legacy for Bridge {
 mod tests {
     use super::*;
     fn fixture(reply: Result<Value>) -> (PathBuf, Bridge) {
+        fixture_many(vec![reply])
+    }
+    fn fixture_many(replies:Vec<Result<Value>>) -> (PathBuf, Bridge) {
         let root =
             std::env::temp_dir().join(format!("school-bridge-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&root).unwrap();
@@ -370,8 +388,8 @@ mod tests {
         command.creation_flags(0x08000000);
         let mut child = command.spawn().unwrap();
         let input = child.stdin.take().unwrap();
-        let (tx, output) = mpsc::sync_channel(1);
-        tx.send(reply).unwrap();
+        let (tx, output) = mpsc::sync_channel(replies.len());
+        for reply in replies {tx.send(reply).unwrap();}
         let bridge = Bridge::new(&root).unwrap();
         *bridge.business.lock().unwrap() = Some(Worker {
             _child: child,
@@ -379,6 +397,35 @@ mod tests {
             output,
         });
         (root, bridge)
+    }
+    #[test]
+    fn chat_connection_uses_shared_provider_and_rechecks_session() {
+        let (root,bridge)=fixture_many(vec![
+            Ok(json!({"ok":true,"result":{"connected":false,"error_code":"authentication_required"}})),
+            Ok(json!({"ok":true,"result":{"linked":true,"connected":true}})),
+            Ok(json!({"ok":true,"result":{"connected":true,"rechecked":true}})),
+        ]);
+        let v=bridge.call("connect",json!({"service":"bb"}),&AtomicBool::new(false),&|_,_|{}).unwrap();
+        assert_eq!(v["rechecked"],true);
+        drop(bridge);std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn shared_provider_verification_does_not_start_another_login() {
+        let (root,bridge)=fixture_many(vec![
+            Ok(json!({"ok":true,"result":{"connected":false,"error_code":"authentication_required"}})),
+            Ok(json!({"ok":true,"result":{"linked":true,"connected":false,"error_code":"login_captcha_required"}})),
+        ]);
+        let v=bridge.call("connect",json!({"service":"bb"}),&AtomicBool::new(false),&|_,_|{}).unwrap();
+        assert_eq!(v["error_code"],"login_captcha_required");
+        drop(bridge);std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn verification_errors_keep_actionable_fixed_guidance() {
+        let (root,bridge)=fixture(Ok(json!({"ok":false,"error":{"code":"login_captcha_required","message":"synthetic secret"}})));
+        let error=bridge.call("identity_restore",json!({"service":"bb"}),&AtomicBool::new(false),&|_,_|{}).unwrap_err();
+        assert_eq!(error.code,"login_captcha_required");
+        assert!(error.message.contains("打开验证窗口"));assert!(!error.message.contains("synthetic secret"));
+        drop(bridge);std::fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn lost_business_reply_keeps_durable_unknown_state() {
@@ -417,5 +464,28 @@ mod tests {
         assert!(bridge.business.lock().unwrap().is_some());
         drop(bridge);
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cached_views_do_not_wait_for_the_business_lane() {
+        for action in ["campus_profile", "campus_timetable", "tasks_list"] {
+            let (root, bridge) = fixture(Ok(json!({"ok":true,"result":{"cached":true}})));
+            *bridge.read.lock().unwrap() = bridge.business.lock().unwrap().take();
+            let bridge = std::sync::Arc::new(bridge);
+            let business_guard = bridge.business.lock().unwrap();
+            let reader = std::sync::Arc::clone(&bridge);
+            let (done, result) = mpsc::channel();
+            let worker = std::thread::spawn(move || {
+                let reply = reader.call(action, json!({}), &AtomicBool::new(false), &|_, _| {});
+                let _ = done.send(reply);
+            });
+            let immediate = result.recv_timeout(Duration::from_secs(2));
+            drop(business_guard);
+            worker.join().unwrap();
+            assert_eq!(immediate.unwrap().unwrap()["cached"], true, "{action}");
+            assert!(!root.join("adapter-uncertain.dpapi").exists());
+            drop(bridge);
+            std::fs::remove_dir_all(root).unwrap();
+        }
     }
 }

@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import re
+import time
 from urllib.parse import parse_qs, urlsplit
 
-from playwright.sync_api import Error as PlaywrightError, sync_playwright
+from playwright.sync_api import Error as PlaywrightError, TimeoutError as BrowserTimeout, sync_playwright
 
 from .. import network
 from ..browser import chrome_browser
@@ -12,6 +13,60 @@ from .assignments import ASSIGNMENT_PATH, ID, catalog
 from .parsing import login_page, safe_url, soup_of
 from .session import BBError, load_session
 from . import native
+
+# Live BB history responses can take 83–100+ seconds before their first byte.
+# Keep one request alive with progress/cancellation, rather than replaying it.
+HISTORY_WAIT_SECONDS = 180
+
+
+def wait_for_review(page, target, stage, *, timeout_seconds=HISTORY_WAIT_SECONDS):
+    started = time.monotonic()
+    response = None
+    loaded = False
+    failed = False
+
+    def received(value):
+        nonlocal response
+        request = value.request
+        if request.is_navigation_request() and request.frame == page.main_frame and request.url == target:
+            response = value
+
+    def ready():
+        nonlocal loaded
+        loaded = True
+
+    def failure(request):
+        nonlocal failed
+        if request.is_navigation_request() and request.frame == page.main_frame:
+            failed = True
+
+    page.on('response', received)
+    page.on('domcontentloaded', ready)
+    page.on('requestfailed', failure)
+    try:
+        stage('正在读取 BB 提交记录；页面响应较慢时会继续等待，可随时停止。')
+        try:
+            return page.goto(target, wait_until='domcontentloaded', timeout=min(1000, timeout_seconds * 1000))
+        except BrowserTimeout:
+            # Playwright leaves the navigation pending. Never call goto again.
+            pass
+        last_progress = -1
+        while not loaded:
+            elapsed = time.monotonic() - started
+            if elapsed >= timeout_seconds:
+                raise BrowserTimeout('BB history response deadline exceeded')
+            if failed:
+                raise PlaywrightError('BB history navigation failed')
+            seconds = int(elapsed)
+            if seconds != last_progress:
+                stage(f'BB 正在处理历史记录，已等待 {seconds} 秒（最多 {int(timeout_seconds)} 秒）；可停止等待，上次记录会保留。')
+                last_progress = seconds
+            page.wait_for_timeout(min(250, max(1, (timeout_seconds - elapsed) * 1000)))
+        return response
+    finally:
+        page.remove_listener('response', received)
+        page.remove_listener('domcontentloaded', ready)
+        page.remove_listener('requestfailed', failure)
 
 
 def review_url(entry: dict, course_id: str, content_id: str) -> str:
@@ -85,17 +140,26 @@ def review_request_allowed(url: str, method: str, target: str, *, navigation: bo
     return method == 'GET' and url == target and navigation and main_frame
 
 
-def inspect_assignment(course_id: str, content_id: str, *, include_attachment_names=False) -> dict:
+def inspect_assignment(course_id: str, content_id: str, *, include_attachment_names=False, progress=None) -> dict:
     if not ID.fullmatch(course_id) or not ID.fullmatch(content_id):
         raise BBError('请使用课程与作业查询返回的有效ID。')
+    started = time.monotonic()
+    timings = {}
+    def stage(message):
+        if progress is not None:
+            progress('study_read', message)
+    stage('正在核对课程中的作业入口…')
     listing = catalog(course_id, max_pages=15, limit=50)
+    timings['catalog'] = round((time.monotonic() - started) * 1000)
     matches = [entry for entry in listing['assignments'] if entry['content_id'] == content_id]
     if len(matches) != 1:
         raise BBError('未在当前课程内容页核实该作业，请重新查找，不猜测入口。')
     target = review_url(matches[0], course_id, content_id)
     blocked = set()
     try:
+        stage('作业入口已确认，正在准备读取提交记录…')
         network.limiter.acquire('bb')
+        browser_started = time.monotonic()
         with sync_playwright() as playwright, chrome_browser(playwright, headless=True) as browser:
             context = browser.new_context(locale='zh-CN', java_script_enabled=False,
                                           service_workers='block', accept_downloads=False)
@@ -111,10 +175,17 @@ def inspect_assignment(course_id: str, content_id: str, *, include_attachment_na
                     blocked.add((request.method, urlsplit(request.url).path))
                     route.abort()
             context.route('**/*', guard)
-            response = page.goto(target, wait_until='domcontentloaded', timeout=25000)
+            timings['browser'] = round((time.monotonic() - browser_started) * 1000)
+            requested = time.monotonic()
+            response = wait_for_review(page, target, stage)
+            timings['page'] = round((time.monotonic() - requested) * 1000)
             if response is None:
                 raise BBError('作业查看未收到页面响应。')
             network.limiter.response('bb', response.status, response.headers)
+            if response.status == 401:
+                raise BBError('BB 登录已失效，请在账号与连接中恢复 BB 连接。', code='authentication_required')
+            if response.status == 403:
+                raise BBError('BB 拒绝访问此作业，请在原课程页面核对访问权限。', code='access_denied')
             if response.status >= 400:
                 raise BBError('作业查看失败或访问受限，请检查登录状态和课程权限。')
             html = page.content()
@@ -122,17 +193,26 @@ def inspect_assignment(course_id: str, content_id: str, *, include_attachment_na
                 raise BBError('作业查看页面超过大小限制。')
             if login_page(html, page.url):
                 network.limiter.failure('bb', authentication=True)
-                raise BBError('BB 登录已失效，请恢复登录后重试。')
+                raise BBError('BB 登录已失效，请恢复登录后重试。', code='authentication_required')
+            soup = soup_of(html)
+            heading = soup.select_one('#pageTitleHeader')
+            if heading and heading.get_text(' ', strip=True) in {'错误', 'Error'}:
+                if soup.select_one('[id="topframe.login.label"]'):
+                    raise BBError('BB 作业页要求恢复登录，请在账号与连接中恢复 BB 连接。', code='authentication_required')
+                raise BBError('BB 原网站返回了错误页面。已保留上次核实记录；请稍后重试，持续出现时联系学校平台管理员。', code='upstream_error')
+            stage('提交记录已返回，正在核对页面内容…')
             result = parse_review(html, include_attachment_names=include_attachment_names)
             network.limiter.success('bb')
             return {'course_id': course_id, 'content_id': content_id, 'title': matches[0]['title'],
                     **result, 'headless': True, 'page_scripts_executed': False,
-                    'blocked_request_count': len(blocked)}
+                    'blocked_request_count': len(blocked), 'timing_ms': timings}
     except network.PolicyError as exc:
         raise BBError(str(exc)) from None
-    except PlaywrightError:
+    except PlaywrightError as exc:
         try:
             network.limiter.failure('bb')
         except network.PolicyError:
             pass
-        raise BBError('后台作业查看失败或遇到未适配跳转，已停止；没有上传、保存或提交。') from None
+        code = 'timeout' if isinstance(exc, BrowserTimeout) else 'runtime_failure'
+        raise BBError('BB 作业历史页响应超时，已保留上次核实记录；可稍后点击“核实提交记录”重试，或打开原作业页面。' if code == 'timeout' else
+                      '后台作业查看失败或遇到未适配跳转，请检查连接后重试。', code=code) from exc

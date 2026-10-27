@@ -23,9 +23,9 @@ class CatalogSnapshotTests(unittest.IsolatedAsyncioTestCase):
     async def test_every_public_schema_description_and_instruction_matches_registration(self):
         """A stale native snapshot must fail this offline release check."""
         self.assertEqual(DATA['version'], 1)
-        self.assertEqual(len(DATA['workflows']), 18)
+        self.assertEqual(len(DATA['workflows']), 19)
         names = {name for flow in DATA['workflows'].values() for name in flow['tools']}
-        self.assertEqual(len(names), 193)
+        self.assertEqual(len(names), 203)
         expected_services = {flow['service'] for flow in DATA['workflows'].values()}
         self.assertEqual(set(DATA['services']), expected_services)
         for service, saved in DATA['services'].items():

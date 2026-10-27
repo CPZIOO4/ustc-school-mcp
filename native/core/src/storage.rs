@@ -216,7 +216,7 @@ pub fn chat_list(input: &Value) -> Result<Value> {
     let mut values = Vec::new();
     for row in rows {
         let chat = decode(&row.map_err(|_| failure())?)?;
-        values.push(json!({"id":chat["id"], "title":chat["title"], "updated_at":chat["updated_at"], "state":chat["state"]}));
+        values.push(json!({"id":chat["id"], "title":chat["title"], "updated_at":chat["updated_at"], "state":chat["state"], "study_context":chat["study_context"]}));
     }
     Ok(json!(values))
 }

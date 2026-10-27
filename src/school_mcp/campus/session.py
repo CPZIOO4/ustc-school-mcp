@@ -21,6 +21,7 @@ ENTRIES = {
     'drive': 'https://pan.ustc.edu.cn/profile/index',
     'vlab': 'https://vlab.ustc.edu.cn/vm/',
     'llm': 'https://llm.ustc.edu.cn/',
+    'compute': 'https://107.ustc.edu.cn/',
 }
 
 

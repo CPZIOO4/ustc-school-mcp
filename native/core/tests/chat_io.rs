@@ -168,6 +168,93 @@ fn read_chat(root: &Path) -> Value {
         .unwrap()
 }
 
+struct StudyAdapter {
+    calls: Mutex<Vec<String>>,
+    root: PathBuf,
+    ambiguous: bool,
+    stop_after_list: bool,
+}
+impl Legacy for StudyAdapter {
+    fn call(&self, action:&str, input:Value, stop:&AtomicBool, _notify:&dyn Fn(&str,&str)) -> Result<Value> {
+        match action {
+            "connect"=>Ok(json!({"connected":true})),
+            "study_flow"=>{
+                let phase=input["action"].as_str().unwrap();
+                self.calls.lock().unwrap().push(phase.into());
+                let entry=json!({"course_id":"_1_1","content_id":"_2_1","title":"Lab1","entry_path":"/webapps/assignment/uploadAssignment?course_id=_1_1&content_id=_2_1&mode=view"});
+                match phase {
+                    "start"=>{
+                        assert_eq!(input["assignments"],study_args()["assignments"]);
+                        if self.stop_after_list {stop.store(true,Ordering::Release);}
+                        Ok(json!({"query_id":"synthetic-study","state":if self.ambiguous{"completed"}else{"partial"},
+                            "timetable":{"count":1,"activities":[{"name":"current","weeks":[8]}]},
+                            "assignments":if self.ambiguous{json!([{"state":"needs_input","matches":[entry.clone(),entry]}])}else{json!([{"state":"pending","entry":entry,"link":{"label":"课程 · Lab1"}}])},
+                            "next_tool":if self.ambiguous{Value::Null}else{json!("school_study_continue")}}))
+                    },
+                    "continue"=>{
+                        assert!(!stop.load(Ordering::Acquire));
+                        assert!(!self.ambiguous);
+                        assert_eq!(input["query_id"],"synthetic-study");
+                        // The quick result and source link must be durable before the slow read.
+                        let chat=read_chat(&self.root);
+                        assert_eq!(chat["study_snapshot"]["assignments"][0]["state"],"pending");
+                        assert_eq!(chat["source_links"].as_array().unwrap().len(),1);
+                        let mut result=chat["study_snapshot"].clone();
+                        result["state"]=json!("completed");
+                        result["next_tool"]=Value::Null;
+                        result["assignments"][0]["state"]=json!("completed");
+                        result["assignments"][0]["submission_state"]=json!("historical_attempt_present");
+                        Ok(result)
+                    },
+                    _=>panic!("Unexpected study phase {phase}"),
+                }
+            },
+            _=>panic!("Unexpected adapter action {action}"),
+        }
+    }
+}
+fn study_args()->Value {
+    let date=chrono::Utc::now().with_timezone(&chrono::FixedOffset::east_opt(8*3600).unwrap()).date_naive().to_string();
+    json!({"date":date,"assignments":[{"course_keyword":"课程","term":"2026SP","assignment_keyword":"Lab1"}]})
+}
+#[test]
+fn study_batch_uses_two_model_rounds_and_links_survive_followup() {
+    let provider=Provider::new(vec![
+        (200,assistant(vec![call("school_study_query",study_args(),"study")]),0),
+        (200,json!({"role":"assistant","content":"查询结果"}),0),
+        (200,json!({"role":"assistant","content":"精简结果（模型漏掉链接）"}),0),
+    ]);
+    let fixture=Fixture::new(&provider.url,false);
+    let adapter=StudyAdapter{calls:Mutex::new(vec![]),root:fixture.root.clone(),ambiguous:false,stop_after_list:false};
+    let stop=AtomicBool::new(false);
+    let result=rt().block_on(chat_io::run(&fixture.input(),&stop,&|_,_|{},&adapter)).unwrap();
+    assert_eq!(result["state"],"completed");
+    let original=fixture.chat();
+    assert_eq!(original["source_links"].as_array().unwrap().len(),1);
+    assert_eq!(provider.requests.lock().unwrap().len(),2);
+    let data:Value=serde_json::from_str(original["messages"][2]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(data["timetable"]["count"],1);
+    let result=rt().block_on(chat_io::run(&fixture.input(),&stop,&|_,_|{},&adapter)).unwrap();
+    assert_eq!(result["state"],"completed");
+    assert_eq!(fixture.chat()["source_links"],original["source_links"]);
+    assert_eq!(*adapter.calls.lock().unwrap(),vec!["start","continue"]);
+    assert_eq!(fixture.chat()["timings"].as_array().unwrap().iter().filter(|t|t["stage"]=="model").count(),1);
+}
+#[test]
+fn study_batch_does_not_inspect_ambiguous_assignment_or_continue_after_stop() {
+    for stopped in [false,true] {
+        let mut replies=vec![(200,assistant(vec![call("school_study_query",study_args(),"study")]),0)];
+        if !stopped {replies.push((200,json!({"role":"assistant","content":"需要选择作业"}),0));}
+        let provider=Provider::new(replies);
+        let fixture=Fixture::new(&provider.url,false);
+        let adapter=StudyAdapter{calls:Mutex::new(vec![]),root:fixture.root.clone(),ambiguous:!stopped,stop_after_list:stopped};
+        let _=rt().block_on(chat_io::run(&fixture.input(),&AtomicBool::new(false),&|_,_|{},&adapter)).unwrap();
+        assert_eq!(*adapter.calls.lock().unwrap(),vec!["start"]);
+        assert_eq!(fixture.chat()["source_links"].as_array().unwrap().len(),usize::from(stopped));
+        assert_eq!(fixture.chat()["study_snapshot"]["assignments"][0]["state"],if stopped{"pending"}else{"needs_input"});
+    }
+}
+
 struct Adapter {
     calls: Mutex<Vec<(String, Value)>>,
     root: PathBuf,
@@ -240,6 +327,38 @@ impl Legacy for Adapter {
 }
 
 #[test]
+fn followup_preserves_the_original_conversation_title() {
+    let reply = json!({"role":"assistant","content":"synthetic final"});
+    let provider = Provider::new(vec![(200, reply.clone(), 0), (200, reply, 0)]);
+    let fixture = Fixture::new(&provider.url, false);
+    let mut chat = fixture.chat();
+    chat["messages"] = json!([{"role":"assistant","content":"欢迎使用"}]);
+    fixture.save(chat);
+    let adapter = Adapter::new(&fixture.root);
+    let mut input = fixture.input();
+    input["text"] = json!("查看本周课程和作业");
+    rt().block_on(chat_io::run(
+        &input, &AtomicBool::new(false), &|_, _| {}, &adapter,
+    )).unwrap();
+    let mut chat = fixture.chat();
+    assert_eq!(chat["title"], "查看本周课程和作业");
+    chat["title"] = json!("已有的课程安排记录");
+    fixture.save(chat);
+    input["text"] = json!("谢谢，再看一下下周的");
+    rt().block_on(chat_io::run(
+        &input, &AtomicBool::new(false), &|_, _| {}, &adapter,
+    )).unwrap();
+    let chat = fixture.chat();
+    assert_eq!(chat["title"], "已有的课程安排记录");
+    assert_eq!(
+        chat["messages"].as_array().unwrap().iter()
+            .filter(|m| m["role"] == "user").count(),
+        2
+    );
+    assert_eq!(provider.requests.lock().unwrap().len(), 2);
+}
+
+#[test]
 fn real_provider_uses_compiled_tools_executes_only_first_and_saves_final() {
     let provider = Provider::new(vec![
         (
@@ -290,8 +409,13 @@ fn real_provider_uses_compiled_tools_executes_only_first_and_saves_final() {
             .as_array()
             .unwrap()
             .len(),
-        9
+        14
     );
+    let requests=provider.requests.lock().unwrap();
+    let tools=&requests[0]["tools"];
+    for name in ["school_study_query","school_study_continue","school_study_status","school_schedule","school_workspace"] {
+        assert!(tools.as_array().unwrap().iter().any(|tool|tool["function"]["name"]==name));
+    }
 }
 
 #[test]

@@ -1,5 +1,15 @@
 # USTC School MCP
 
+SchoolAgent 将日常校园查询和办理流程集中到桌面对话界面，也提供可供其他 AI 客户端调用的 MCP 工具。当前新增功能包括：
+
+| 功能 | 使用方式与验收记录 |
+| --- | --- |
+| 课程工作台与作业任务管理 | 集中查看课程、作业及任务进度，见 [课程工作台](docs/course-workbench-validation.md) |
+| 分阶段查询 | 先返回课表和已取得的信息，再继续读取较慢的 BB 内容；追问保留来源链接，见 [查询与计算流程验收](docs/staged-study-compute-validation.md) |
+| 日程与提醒 | 将学习安排保存为本地日程并设置提醒，见 [日程验收](docs/personal-calendar-validation.md) |
+| 应用内网页标签 | 从回答打开来源网页，复用本人已授权的学校登录状态，见 [登录复用](docs/identity-reuse-validation.md) |
+| 107 算力平台 | 查询资源和任务，准备、提交、跟踪实验并下载结果；提交和取消按用户授权执行，见 [107 使用说明](.agents/skills/school-services/references/campus-compute.md) |
+
 桌面客户端正迁移到 [Rust + Tauri](docs/native-desktop.md)。0.8.0 核心已处理模型配置与能力测试、上传文件校验、对话中断恢复、教务解析/排课、BB 附件与提交执行，以及青春科大查询、报名监控和系统调度。应用主后端、对话协调、确认/停止和官方人工登录也由 Rust 执行；其余站点业务仍使用固定 Python 私有管道适配器。BB、青春科大和官方登录通过 Rust CDP 操作自有 Chrome。沿用本人已有数据，详细边界与旧版计划处理见 [迁移进度](docs/rust-migration.md)。当前验收目标为 Windows，macOS/Linux/Android/iOS 尚未完成业务适配。
 
 新增 [信息中心](docs/campus-digest.md)：公开就业/实习/宣讲与三个学院通知、已有校园来源汇总、按条件订阅、应用内及授权邮箱简报、课表/事项 ICS 导出。默认仅预览；用户选择来源和收件人后开启固定后台脚本。支持协调器 `digest` 流程，公开网页范围与运行限制见说明。

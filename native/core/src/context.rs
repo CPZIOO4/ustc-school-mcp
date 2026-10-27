@@ -48,7 +48,15 @@ pub fn units(messages: &[Value]) -> Result<Vec<Vec<Value>>> {
     Ok(groups)
 }
 pub fn project(input: &Value) -> Result<Value> {
-    let messages = input["messages"].as_array().ok_or_else(Error::invalid)?;
+    let original = input["messages"].as_array().ok_or_else(Error::invalid)?;
+    let last_user = original.iter().rposition(|m| m["role"]=="user").unwrap_or(0);
+    let mut cleaned = original.clone();
+    // Prior completed turns need answers and receipts, not private reasoning.
+    // Keep the current tool turn intact for providers requiring reasoning replay.
+    for message in cleaned.iter_mut().take(last_user) {
+        if let Some(object)=message.as_object_mut() { object.remove("reasoning_content"); }
+    }
+    let messages = &cleaned;
     let instructions = input["instructions"].as_str().ok_or_else(Error::invalid)?;
     let model = input["model"].as_str().ok_or_else(Error::invalid)?;
     let budget = match input.get("budget") {

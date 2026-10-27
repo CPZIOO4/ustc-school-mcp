@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from importlib import import_module
 
-CAMPUS_SERVICES = ('portal', 'student', 'spaces', 'drive', 'vlab')
+CAMPUS_SERVICES = ('portal', 'student', 'spaces', 'drive', 'vlab', 'compute')
 SERVICES = ("mail", "bb", "jw", "library", "teach", "nan7", "icourse", "young", "finance") + CAMPUS_SERVICES
 CLIENTS = {"bb": "BBClient", "jw": "JWClient", "library": "LibraryClient", "teach": "TeachClient",
            "nan7": "Nan7Client", "icourse": "ICourseClient", "young": "YoungClient", "finance": "FinanceClient"}

@@ -16,9 +16,13 @@ def main():
         for name in names:
             path=PurePosixPath(name.replace('\\','/'))
             assert not path.is_absolute() and '..' not in path.parts
-            assert path.parts[0] in {'engine','USTC-School-Agent.exe','school-core.exe','LICENSE','native-desktop.md','rust-migration.md','safety-logs.md'}
+            assert path.parts[0] in {'engine','USTC-School-Agent.exe','school-core.exe','LICENSE','native-desktop.md','rust-migration.md','safety-logs.md','release-manifest.json'}
             assert not set(path.parts)&{'.local','.git','.venv','node_modules','profile','diagnostics','native-toolchain'}
             assert not path.name.endswith(('.dpapi','.sqlite3','.log','.pid','.har'))
+        release=json.loads(archive.read('release-manifest.json').decode('utf-8-sig'))
+        assert release['profile']=='release'
+        for name, digest in release['sha256'].items():
+            assert hashlib.sha256(archive.read(name)).hexdigest()==digest
         assert archive.read('USTC-School-Agent.exe')==(root/'native/target/release/ustc-school-desktop.exe').read_bytes()
         assert archive.read('school-core.exe')==(root/'native/core/target/release/school-core.exe').read_bytes()
         assert archive.read('engine/USTC-School-Engine.exe')==(root/'dist/USTC-School-Engine/USTC-School-Engine.exe').read_bytes()

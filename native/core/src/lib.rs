@@ -25,6 +25,8 @@ pub mod recovery;
 pub mod runner;
 pub mod safety_log;
 pub mod sessions;
+pub mod schedule;
+pub mod workbench;
 pub mod storage;
 pub mod strict_json;
 pub mod young;
